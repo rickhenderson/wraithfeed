@@ -1,0 +1,21 @@
+Threat actors distributing the ShadowLynx loader have been observed staging
+payloads on compromised WordPress sites over the past two weeks.
+
+Initial access is achieved via a phishing email sent from
+finance-support[@]corp-billing[.]com containing a link to
+hxxps://cdn-updates[.]net/invoice/setup.exe.
+
+Once executed, the loader (SHA256:
+9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08) drops a
+second-stage payload identified by its MD5 hash
+d41d8cd98f00b204e9800998ecf8427e and reaches out to command-and-control
+infrastructure at 185.220.101.45 and c2.shadowlynx-panel[.]ru.
+
+Persistence is established via the registry key
+HKLM\Software\Microsoft\Windows\CurrentVersion\Run\Updater.
+
+A Bitcoin wallet associated with the ransom note was identified as
+1BoatSLRHtKNngkdXEeobR76b53LETtpyT.
+
+The sample was also seen communicating over
+hxxp://185.220.101.45:8080/gate.php.
