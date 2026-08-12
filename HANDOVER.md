@@ -63,6 +63,14 @@ The DFIR Report, Unit 42, Cisco Talos, Securelist, Elastic Security Labs,
 Sekoia, Microsoft MSTIC, ESET Research, Huntress, Trend Micro, Proofpoint,
 Red Canary.
 
+Feed URLs actually wired into `collectors/feeds.py`'s `SOURCES` so far:
+Unit 42 (`unit42.paloaltonetworks.com/feed/` — note: separate from the
+`live.paloaltonetworks.com` community-forum page, which 403s bots), The
+DFIR Report (`thedfirreport.com/feed/`), and two sources not in the
+original list above but added for extra coverage: Wiz Cloud Threat
+Landscape and SANS ISC. The remaining vendors in the list still have empty
+URLs in `SOURCES` — confirm/find their feeds before relying on them.
+
 Date filter `published >= now - 30d` applied in code at stage 1. Do not rely on
 the model to judge recency.
 
@@ -70,19 +78,32 @@ the model to judge recency.
 
 ## Module layout (proposed — adjust to fit existing repo conventions)
 
-| Module | Responsibility |
-|---|---|
-| `collectors/feeds.py` | RSS/Atom poll, date filter, emit `FeedItem` |
-| `collectors/structured.py` | ThreatFox / MalwareBazaar / URLhaus / KEV clients |
-| `store/seen.py` | SQLite dedupe on `sha256(url)`, plus run log |
-| `extract/article.py` | trafilatura or readability → clean text + tables |
-| `extract/iocs.py` | regex candidates, defang normalization, indexing |
-| `llm/triage.py` | binary relevance call |
-| `llm/structure.py` | main extraction call, returns raw JSON |
-| `validate/schema.py` | pydantic model for the extraction schema |
-| `validate/indicators.py` | index resolution, type/value match, warninglist check |
-| `misp/writer.py` | PyMISP event/object/attribute construction, dedupe-on-write |
-| `cli.py` | `run`, `--dry-run`, `--since`, `--source`, `--limit` |
+| Module | Responsibility | Status |
+|---|---|---|
+| `collectors/feeds.py` | RSS/Atom poll, date filter, emit `FeedItem` | done |
+| `collectors/structured.py` | ThreatFox / MalwareBazaar / URLhaus / KEV clients | not started |
+| `store/seen.py` | SQLite dedupe on `sha256(url)`, plus run log | done |
+| `extract/article.py` | trafilatura → clean text + tables | done |
+| `extract/iocs.py` | regex candidates, defang normalization, indexing | done |
+| `llm/triage.py` | binary relevance call | not started |
+| `llm/structure.py` | main extraction call, returns raw JSON | not started |
+| `validate/schema.py` | pydantic model for the extraction schema | not started |
+| `validate/indicators.py` | index resolution, type/value match, warninglist check | not started |
+| `misp/writer.py` | PyMISP event/object/attribute construction, dedupe-on-write | not started |
+| `cli.py` | `run`, `--dry-run`, `--since`, `--source`, `--limit` | wired for stages 1-2-4-5 only; every run is currently dry-run since there's no write stage yet |
+
+Stages 1 (`collect`), 2 (`dedupe`), 4 (`fetch`), and 5 (`candidates`) are
+chained end-to-end via `cli.py run` and have been smoke-tested against live
+feeds/articles. Stages 3, 6, 7, 8 (all LLM/validate/write stages) remain to
+be built — `cli.py`'s shape will need to change once they exist.
+
+`extract/article.py` extraction quality is source-dependent: it works
+cleanly on Unit 42 (WordPress) but produced nav boilerplate instead of
+article text on a SANS ISC diary page — a known gap to account for when the
+LLM stages are wired in, not yet fixed.
+
+18/18 tests passing (`pytest`). New deps since project start: `feedparser`,
+`trafilatura` (pinned in `requirements.txt`).
 
 ---
 
@@ -228,3 +249,10 @@ document.
   Current schema assumes one event per article.
 - Retention/aging policy for events not reviewed within N days.
 - Whether to auto-tag by sector/region galaxy or leave those as plain tags.
+- `cli.py run --limit N` (without `--source`) consumes the limit greedily in
+  `SOURCES` dict order, so a small limit can exhaust itself on the first
+  source and never reach the others. Fine for manual testing; would need a
+  round-robin pass if used unattended before all sources are populated.
+- Remaining narrative vendor feed URLs (Talos, Securelist, Elastic, Sekoia,
+  MSTIC, ESET, Huntress, Trend Micro, Proofpoint) still need to be found and
+  confirmed.
