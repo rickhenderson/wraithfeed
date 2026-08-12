@@ -1,10 +1,10 @@
 """Pipeline entry point.
 
-Chains stages 1-2-4-5 (collect -> dedupe -> fetch -> candidates). Stages
-3, 6, 7, 8 (triage/structure LLM calls, validation, MISP write) don't
-exist yet, so `run` is dry-run-only for now: it prints one JSON object per
-newly-seen article with its extracted IOC candidates and does not write
-anywhere but the seen-store.
+Chains stages 1-2-3-4-5 (collect -> dedupe -> fetch -> triage -> candidates).
+Stages 6, 7, 8 (structure/validate/MISP write) don't exist yet, so `run` is
+dry-run-only for now: it prints one JSON object per newly-seen, triage-relevant
+article with its extracted IOC candidates and does not write anywhere but the
+seen-store.
 
 Written by Claude Code for Rick Henderson.
 """
@@ -19,6 +19,7 @@ from dataclasses import asdict
 from collectors.feeds import SOURCES, FeedFetchError, poll_feed
 from extract.article import ArticleFetchError, fetch_article
 from extract.iocs import extract_candidates
+from llm.triage import TriageError, is_relevant
 from store.seen import RunStats, SeenStore
 
 DEFAULT_DB_PATH = "data/wraithfeed.db"
@@ -63,6 +64,21 @@ def run(
                     continue
 
                 store.mark_pending(item.url)
+
+                try:
+                    relevant = is_relevant(item.title, item.summary)
+                except TriageError as exc:
+                    print(f"[cli] {exc}", file=sys.stderr)
+                    store.mark_failed(item.url)
+                    failed += 1
+                    continue
+
+                if not relevant:
+                    store.mark_processed(item.url)
+                    processed += 1
+                    processed_count += 1
+                    continue
+
                 try:
                     article = fetch_article(item.url)
                 except ArticleFetchError as exc:

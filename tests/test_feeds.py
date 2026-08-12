@@ -61,3 +61,24 @@ def test_parse_feed_respects_custom_max_age():
     )
     assert parse_feed(raw, source="Test Vendor", max_age_days=30) != []
     assert parse_feed(raw, source="Test Vendor", max_age_days=5) == []
+
+
+def test_parse_feed_extracts_and_strips_summary_html():
+    pub = (NOW - timedelta(days=1)).strftime("%a, %d %b %Y %H:%M:%S %z")
+    raw = _rss(
+        f"<item><title>Campaign X</title><link>https://example.com/x</link>"
+        f"<pubDate>{pub}</pubDate>"
+        f"<description>&lt;p&gt;A &lt;b&gt;worm&lt;/b&gt; spreads.&lt;/p&gt;</description></item>"
+    )
+    items = parse_feed(raw, source="Test Vendor")
+
+    assert items[0].summary == "A  worm  spreads."
+
+
+def test_parse_feed_summary_defaults_empty_when_missing():
+    raw = _rss(
+        _rss_item("No Summary", "https://example.com/none", NOW - timedelta(days=1)),
+    )
+    items = parse_feed(raw, source="Test Vendor")
+
+    assert items[0].summary == ""

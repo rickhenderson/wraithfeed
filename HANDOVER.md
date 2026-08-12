@@ -85,17 +85,48 @@ the model to judge recency.
 | `store/seen.py` | SQLite dedupe on `sha256(url)`, plus run log | done |
 | `extract/article.py` | trafilatura → clean text + tables | done |
 | `extract/iocs.py` | regex candidates, defang normalization, indexing | done |
-| `llm/triage.py` | binary relevance call | not started |
+| `llm/triage.py` | binary relevance call | done |
 | `llm/structure.py` | main extraction call, returns raw JSON | not started |
 | `validate/schema.py` | pydantic model for the extraction schema | not started |
 | `validate/indicators.py` | index resolution, type/value match, warninglist check | not started |
 | `misp/writer.py` | PyMISP event/object/attribute construction, dedupe-on-write | not started |
-| `cli.py` | `run`, `--dry-run`, `--since`, `--source`, `--limit` | wired for stages 1-2-4-5 only; every run is currently dry-run since there's no write stage yet |
+| `cli.py` | `run`, `--dry-run`, `--since`, `--source`, `--limit` | wired for stages 1-2-3-4-5 only; every run is currently dry-run since there's no write stage yet |
 
-Stages 1 (`collect`), 2 (`dedupe`), 4 (`fetch`), and 5 (`candidates`) are
-chained end-to-end via `cli.py run` and have been smoke-tested against live
-feeds/articles. Stages 3, 6, 7, 8 (all LLM/validate/write stages) remain to
-be built — `cli.py`'s shape will need to change once they exist.
+Stages 1 (`collect`), 2 (`dedupe`), 3 (`triage`), 4 (`fetch`), and 5
+(`candidates`) are chained end-to-end via `cli.py run` and have been
+smoke-tested against live feeds/articles. Stages 6, 7, 8 (structure/validate/
+MISP write) remain to be built — `cli.py`'s shape will need to change once
+they exist.
+
+### Triage (stage 3) — local model setup
+
+Triage uses a local Ollama model, not the commercial API model, per the
+operational constraints below. It runs on the RSS `summary`/`description`
+field plus title — *before* stage 4's fetch — so an irrelevant article
+never costs a network fetch. This means `FeedItem` carries a `summary`
+field (HTML-stripped) sourced straight from the feed entry, not from the
+fetched article body.
+
+The base `qwen3.5:latest` model, called directly with the literal prompt
+text originally drafted for this stage ("...containing indicators?"),
+produced false negatives: it required the snippet to literally list IOC
+values (hashes/IPs) rather than judging topic relevance, and executive-
+summary-style snippets almost never front-load raw indicators. Fixed by
+building a custom Ollama model with a `SYSTEM` prompt that clarifies the
+task is about topic, not indicator-presence-in-snippet, and pins
+`temperature 0` + disables "thinking" mode (which otherwise burns ~1500
+tokens and ~24s per YES/NO call on this model).
+
+This custom model is a local Ollama artifact, not a pip dependency — it
+won't exist on a fresh machine until rebuilt:
+
+```
+ollama create wraithfeed-triage -f llm/Modelfile.triage
+```
+
+`llm/triage.py` defaults to calling `wraithfeed-triage` at
+`http://localhost:11434`. Requires Ollama running locally with that model
+built (or `DEFAULT_MODEL`/`DEFAULT_OLLAMA_URL` overridden at the call site).
 
 `extract/article.py` extraction quality is source-dependent: it works
 cleanly on Unit 42 (WordPress) but produced nav boilerplate instead of

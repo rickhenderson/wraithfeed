@@ -9,6 +9,7 @@ Written by Claude Code for Rick Henderson.
 
 from __future__ import annotations
 
+import re
 from calendar import timegm
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -20,6 +21,12 @@ DEFAULT_MAX_AGE_DAYS = 30
 DEFAULT_TIMEOUT_SECONDS = 15
 USER_AGENT = "wraithfeed/0.1 (+https://kevscan.cloud/)"
 
+_TAG_RE = re.compile(r"<[^>]+>")
+
+
+def _strip_html(text: str) -> str:
+    return _TAG_RE.sub(" ", text)
+
 
 @dataclass(frozen=True)
 class FeedItem:
@@ -27,6 +34,7 @@ class FeedItem:
     title: str
     url: str
     published: datetime  # UTC, tz-aware
+    summary: str  # RSS/Atom summary or description, HTML stripped; may be ""
 
 
 class FeedFetchError(Exception):
@@ -60,7 +68,10 @@ def parse_feed(raw: bytes, source: str, *, max_age_days: int = DEFAULT_MAX_AGE_D
             continue
         if published < cutoff:
             continue
-        items.append(FeedItem(source=source, title=title, url=url, published=published))
+        summary = _strip_html(getattr(entry, "summary", "") or "").strip()
+        items.append(
+            FeedItem(source=source, title=title, url=url, published=published, summary=summary)
+        )
     return items
 
 
