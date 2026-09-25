@@ -98,7 +98,18 @@ smoke-tested against live feeds/articles. Stages 6, 7, 8 (structure/validate/
 MISP write) remain to be built — `cli.py`'s shape will need to change once
 they exist.
 
-### Triage (stage 3) — local model setup
+### LLM providers (update 2026-09-24)
+
+All model calls go through `llm/providers.py`, selected per stage by env var
+(`WRAITHFEED_<STAGE>_PROVIDER` / `_MODEL` / `_BASE_URL`, falling back to
+`WRAITHFEED_LLM_*`). Supported: `anthropic` (SDK), `openai`, `openrouter`,
+`local` (any OpenAI-compatible server), `ollama`. Triage now defaults to
+`anthropic` / `claude-haiku-4-5`, because the dev machine (3.7 GB RAM, no usable
+GPU) can't host a local model. The triage system prompt moved from the
+Modelfile into `llm/triage.py`, so every provider gets it. The Ollama setup
+below still works via `WRAITHFEED_TRIAGE_PROVIDER=ollama`.
+
+### Triage (stage 3) — local model setup (original)
 
 Triage uses a local Ollama model, not the commercial API model, per the
 operational constraints below. It runs on the RSS `summary`/`description`

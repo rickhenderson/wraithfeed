@@ -128,6 +128,18 @@ class SeenStore:
         )
         self.conn.commit()
 
+    def release(self, url: str) -> None:
+        """Forget a URL still marked pending, so the next run picks it up again.
+
+        For when the run aborts on a problem that isn't the article's fault
+        (bad API key, unknown model) — the article shouldn't be charged a retry.
+        """
+        self.conn.execute(
+            "DELETE FROM seen WHERE url_hash = ? AND status = ?",
+            (_hash_url(url), STATUS_PENDING),
+        )
+        self.conn.commit()
+
     def retry_count(self, url: str) -> int:
         row = self.conn.execute(
             "SELECT retry_count FROM seen WHERE url_hash = ?", (_hash_url(url),)

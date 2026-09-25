@@ -16,9 +16,12 @@ import json
 import sys
 from dataclasses import asdict
 
+from dotenv import load_dotenv
+
 from collectors.feeds import SOURCES, FeedFetchError, poll_feed
 from extract.article import ArticleFetchError, fetch_article
 from extract.iocs import extract_candidates
+from llm.providers import LLMError, get_provider
 from llm.triage import TriageError, is_relevant
 from store.seen import RunStats, SeenStore
 
@@ -40,6 +43,7 @@ def run(
     """
     sources = {source: SOURCES[source]} if source else SOURCES
     processed_count = 0
+    triage_provider = get_provider("triage")
 
     with SeenStore(db_path) as store:
         for name, feed_url in sources.items():
@@ -66,11 +70,16 @@ def run(
                 store.mark_pending(item.url)
 
                 try:
-                    relevant = is_relevant(item.title, item.summary)
+                    relevant = is_relevant(item.title, item.summary, provider=triage_provider)
                 except TriageError as exc:
+                    if exc.fatal:
+                        store.release(item.url)
+                        store.log_run(RunStats(source=name, collected=collected, processed=processed, failed=failed))
+                        raise
                     print(f"[cli] {exc}", file=sys.stderr)
                     store.mark_failed(item.url)
                     failed += 1
+                    processed_count += 1
                     continue
 
                 if not relevant:
@@ -85,6 +94,7 @@ def run(
                     print(f"[cli] {exc}", file=sys.stderr)
                     store.mark_failed(item.url)
                     failed += 1
+                    processed_count += 1
                     continue
 
                 candidates = extract_candidates(article.text)
@@ -112,6 +122,7 @@ def run(
 
 
 def main(argv: list[str] | None = None) -> int:
+    load_dotenv()
     parser = argparse.ArgumentParser(prog="wraithfeed")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -130,13 +141,17 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.command == "run":
-        count = run(
-            db_path=args.db,
-            source=args.source,
-            since_days=args.since,
-            limit=args.limit,
-            dry_run=args.dry_run,
-        )
+        try:
+            count = run(
+                db_path=args.db,
+                source=args.source,
+                since_days=args.since,
+                limit=args.limit,
+                dry_run=args.dry_run,
+            )
+        except (LLMError, TriageError) as exc:
+            print(f"[cli] aborting run: {exc}", file=sys.stderr)
+            return 1
         print(f"[cli] processed {count} new article(s)", file=sys.stderr)
         return 0
 

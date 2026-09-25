@@ -59,3 +59,17 @@ def test_log_run_records_stats(tmp_path):
             "SELECT source, collected, processed, failed FROM run_log"
         ).fetchone()
         assert row == ("unit42", 5, 4, 1)
+
+
+def test_release_forgets_pending_but_not_finished(tmp_path):
+    from store.seen import SeenStore
+
+    with SeenStore(str(tmp_path / "db")) as store:
+        store.mark_pending("https://a")
+        store.release("https://a")
+        assert not store.is_seen("https://a")
+
+        store.mark_pending("https://b")
+        store.mark_processed("https://b")
+        store.release("https://b")
+        assert store.is_seen("https://b")

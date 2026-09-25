@@ -1,44 +1,45 @@
 """Triage: binary relevance call.
 
-Runs on title + first 500 characters. Uses a local Ollama model to keep
-API spend down (per HANDOVER.md operational constraints) — this is a cheap,
-high-volume filter, not the extraction stage. Answers YES/NO only; never
-emits or references indicator values.
+Runs on title + first 500 characters. Uses a cheap model to keep spend down
+(per HANDOVER.md operational constraints) — this is a high-volume filter, not
+the extraction stage. The backend is chosen by `llm.providers.get_provider`
+(default: Anthropic Claude Haiku 4.5). Answers YES/NO only; never emits or
+references indicator values.
 
 Written by Claude Code for Rick Henderson.
 """
 
 from __future__ import annotations
 
-import requests
+from llm.providers import LLMError, Provider, get_provider
 
-DEFAULT_OLLAMA_URL = "http://localhost:11434/api/generate"
-DEFAULT_MODEL = "wraithfeed-triage"
-DEFAULT_TIMEOUT_SECONDS = 30
 SNIPPET_CHARS = 500
+MAX_TOKENS = 5
 
-# Task framing lives in the model's Modelfile SYSTEM prompt (llm/Modelfile.triage) —
-# `ollama create wraithfeed-triage -f llm/Modelfile.triage` builds it from qwen3.5.
-# Keeping instructions there (not per-request) so temperature/num_ctx/thinking are
-# baked in once and every triage call only needs to send the excerpt.
+# Originally lived only in llm/Modelfile.triage; moved here so every provider
+# gets the same task framing. The "topic, not indicators" wording fixes false
+# negatives on executive-summary-style snippets.
+SYSTEM_PROMPT = """You are a triage filter for a threat intelligence pipeline. You are shown a short excerpt (title + opening text) from an article and must decide if the FULL article is likely a technical writeup of a specific malware family, intrusion, or campaign.
+
+Answer YES if the excerpt describes a named malware/campaign/threat-actor, an intrusion, or attacker tooling/infrastructure/behavior — even if the excerpt itself is just an executive summary and doesn't list raw indicator values (hashes, IPs, domains). Full articles almost always contain indicators further down; you are judging the TOPIC, not verifying indicators are present in this excerpt.
+
+Answer NO if the excerpt is about something else entirely: general security news, product announcements, opinion pieces, policy, culture, unrelated tech topics, or vulnerability disclosures with no malware/campaign/intrusion narrative.
+
+Respond with exactly one word: YES or NO. No explanation, no punctuation, no other text."""
+
 _PROMPT_TEMPLATE = """TITLE: {title}
 
 TEXT: {snippet}"""
 
 
 class TriageError(Exception):
-    pass
+    def __init__(self, message: str, *, fatal: bool = False):
+        super().__init__(message)
+        self.fatal = fatal
 
 
-def is_relevant(
-    title: str,
-    text: str,
-    *,
-    model: str = DEFAULT_MODEL,
-    ollama_url: str = DEFAULT_OLLAMA_URL,
-    timeout: int = DEFAULT_TIMEOUT_SECONDS,
-) -> bool:
-    """Ask the local model whether this article is worth full extraction.
+def is_relevant(title: str, text: str, *, provider: Provider | None = None) -> bool:
+    """Ask the triage model whether this article is worth full extraction.
 
     Any response other than a clean leading "yes" is treated as NO —
     fail closed, since a missed article is cheaper than a wasted
@@ -48,20 +49,9 @@ def is_relevant(
     prompt = _PROMPT_TEMPLATE.format(title=title, snippet=snippet)
 
     try:
-        resp = requests.post(
-            ollama_url,
-            json={
-                "model": model,
-                "prompt": prompt,
-                "stream": False,
-                "think": False,
-                "options": {"num_ctx": 4096, "temperature": 0},
-            },
-            timeout=timeout,
-        )
-        resp.raise_for_status()
-    except requests.RequestException as exc:
-        raise TriageError(f"triage call failed: {exc}") from exc
+        provider = provider or get_provider("triage")
+        answer = provider.complete(SYSTEM_PROMPT, prompt, max_tokens=MAX_TOKENS)
+    except LLMError as exc:
+        raise TriageError(f"triage call failed: {exc}", fatal=exc.fatal) from exc
 
-    answer = resp.json().get("response", "").strip().lower()
-    return answer.startswith("yes")
+    return answer.strip().lower().startswith("yes")
