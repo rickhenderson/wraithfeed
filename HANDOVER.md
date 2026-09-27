@@ -103,9 +103,17 @@ they exist.
 All model calls go through `llm/providers.py`, selected per stage by env var
 (`WRAITHFEED_<STAGE>_PROVIDER` / `_MODEL` / `_BASE_URL`, falling back to
 `WRAITHFEED_LLM_*`). Supported: `anthropic` (SDK), `openai`, `openrouter`,
-`local` (any OpenAI-compatible server), `ollama`. Triage now defaults to
-`anthropic` / `claude-haiku-4-5`, because the dev machine (3.7 GB RAM, no usable
-GPU) can't host a local model. The triage system prompt moved from the
+`local` (any OpenAI-compatible server), `ollama`. Triage defaults to
+`anthropic` / `claude-haiku-4-5` in code; that default was chosen on an old
+laptop (3.7 GB RAM, no GPU). The current dev machine has an RTX 3070 (8 GB VRAM)
+and 24 GB RAM, so models up to ~6 GB (weights + KV cache) run fully on GPU.
+Larger ones (e.g. an 8B Gemma 4 at 9.6 GB) spill to CPU and are very slow, and
+ComfyUI holds ~17 GB RAM when running, so stop it before LLM work
+(`systemctl --user stop comfyui`). Local `.env` runs triage on Ollama
+`llama3.2:3b`: in a 2026-09-27 test on 28 hand-labeled feed items it scored
+25/28 at ~170 ms/call with no false positives, vs 21/28 for
+`qwen3.5-abliterated:4b` (7 false positives). Its 3 misses were SANS ISC items
+whose feed summary is just `Introduction&#xd;`. The triage system prompt moved from the
 Modelfile into `llm/triage.py`, so every provider gets it. The Ollama setup
 below still works via `WRAITHFEED_TRIAGE_PROVIDER=ollama`.
 
