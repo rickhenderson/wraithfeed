@@ -64,7 +64,7 @@ def run(
             for item in items:
                 if limit is not None and processed + failed >= limit:
                     break
-                if store.is_seen(item.url):
+                if not store.should_process(item.url):
                     continue
 
                 store.mark_pending(item.url)

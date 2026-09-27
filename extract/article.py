@@ -14,8 +14,10 @@ from dataclasses import dataclass
 import requests
 import trafilatura
 
+from collectors.fetch import safe_get
+
 DEFAULT_TIMEOUT_SECONDS = 20
-USER_AGENT = "wraithfeed/0.1 (+https://kevscan.cloud/)"
+HTML_TYPES = ("text/html", "application/xhtml+xml")
 
 
 class ArticleFetchError(Exception):
@@ -36,19 +38,15 @@ def fetch_article(url: str, *, timeout: int = DEFAULT_TIMEOUT_SECONDS) -> Articl
     article body is found (e.g. paywall, JS-only rendering, non-article page).
     """
     try:
-        resp = requests.get(
-            url,
-            headers={"User-Agent": USER_AGENT},
-            timeout=timeout,
-        )
-        resp.raise_for_status()
+        result = safe_get(url, timeout=timeout, content_types=HTML_TYPES)
     except requests.RequestException as exc:
-        raise ArticleFetchError(f"failed to fetch {url}: {exc}") from exc
+        raise ArticleFetchError(f"failed to fetch {url!r}: {exc}") from exc
 
-    return extract_article(resp.text, url)
+    # Bytes, not decoded text: trafilatura detects the charset from the page itself.
+    return extract_article(result.content, url)
 
 
-def extract_article(html: str, url: str) -> Article:
+def extract_article(html: str | bytes, url: str) -> Article:
     """Extract article text from already-fetched HTML."""
     text = trafilatura.extract(html, url=url, include_tables=True, include_comments=False)
     if not text:

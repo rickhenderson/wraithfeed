@@ -72,7 +72,18 @@ def test_parse_feed_extracts_and_strips_summary_html():
     )
     items = parse_feed(raw, source="Test Vendor")
 
-    assert items[0].summary == "A  worm  spreads."
+    assert items[0].summary == "A worm spreads."
+
+
+def test_parse_feed_summary_decodes_entities_but_keeps_escaped_markup_as_text():
+    pub = (NOW - timedelta(days=1)).strftime("%a, %d %b %Y %H:%M:%S %z")
+    raw = _rss(
+        f"<item><title>T</title><link>https://example.com/y</link><pubDate>{pub}</pubDate>"
+        f"<description>Introduction&amp;#xd; AT&amp;amp;T &amp;lt;script&amp;gt;</description></item>"
+    )
+    items = parse_feed(raw, source="Test Vendor")
+
+    assert items[0].summary == "Introduction AT&T <script>"
 
 
 def test_parse_feed_summary_defaults_empty_when_missing():

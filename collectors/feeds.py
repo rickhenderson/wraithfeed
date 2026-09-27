@@ -9,6 +9,7 @@ Written by Claude Code for Rick Henderson.
 
 from __future__ import annotations
 
+import html
 import re
 from calendar import timegm
 from dataclasses import dataclass
@@ -17,15 +18,18 @@ from datetime import datetime, timedelta, timezone
 import feedparser
 import requests
 
+from collectors.fetch import safe_get
+
 DEFAULT_MAX_AGE_DAYS = 30
 DEFAULT_TIMEOUT_SECONDS = 15
-USER_AGENT = "wraithfeed/0.1 (+https://kevscan.cloud/)"
 
 _TAG_RE = re.compile(r"<[^>]+>")
+_WS_RE = re.compile(r"\s+")
 
 
 def _strip_html(text: str) -> str:
-    return _TAG_RE.sub(" ", text)
+    # Unescape after stripping so an escaped "&lt;b&gt;" survives as literal text.
+    return _WS_RE.sub(" ", html.unescape(_TAG_RE.sub(" ", text))).strip()
 
 
 @dataclass(frozen=True)
@@ -68,7 +72,7 @@ def parse_feed(raw: bytes, source: str, *, max_age_days: int = DEFAULT_MAX_AGE_D
             continue
         if published < cutoff:
             continue
-        summary = _strip_html(getattr(entry, "summary", "") or "").strip()
+        summary = _strip_html(getattr(entry, "summary", "") or "")
         items.append(
             FeedItem(source=source, title=title, url=url, published=published, summary=summary)
         )
@@ -84,16 +88,11 @@ def poll_feed(
 ) -> list[FeedItem]:
     """Fetch a feed URL and return recent FeedItems for `source`."""
     try:
-        resp = requests.get(
-            feed_url,
-            headers={"User-Agent": USER_AGENT},
-            timeout=timeout,
-        )
-        resp.raise_for_status()
+        result = safe_get(feed_url, timeout=timeout)
     except requests.RequestException as exc:
         raise FeedFetchError(f"{source}: failed to fetch {feed_url}: {exc}") from exc
 
-    return parse_feed(resp.content, source, max_age_days=max_age_days)
+    return parse_feed(result.content, source, max_age_days=max_age_days)
 
 
 # Narrative sources per HANDOVER.md. Feed URLs are intentionally left blank —

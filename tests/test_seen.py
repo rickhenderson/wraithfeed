@@ -73,3 +73,47 @@ def test_release_forgets_pending_but_not_finished(tmp_path):
         store.mark_processed("https://b")
         store.release("https://b")
         assert store.is_seen("https://b")
+
+
+def test_failed_url_is_retried_until_max_attempts(tmp_path):
+    from store.seen import MAX_ATTEMPTS
+
+    url = "https://example.com/flaky"
+    with _store(tmp_path) as store:
+        for _ in range(MAX_ATTEMPTS):
+            assert store.should_process(url)
+            store.mark_pending(url)
+            store.mark_failed(url)
+        assert not store.should_process(url)
+
+
+def test_processed_url_is_never_reprocessed(tmp_path):
+    url = "https://example.com/done"
+    with _store(tmp_path) as store:
+        store.mark_pending(url)
+        store.mark_processed(url)
+        assert not store.should_process(url)
+
+
+def test_pending_left_by_crashed_run_counts_as_an_attempt(tmp_path):
+    from store.seen import MAX_ATTEMPTS
+
+    url = "https://example.com/crashes-the-run"
+    with _store(tmp_path) as store:
+        for _ in range(MAX_ATTEMPTS):
+            assert store.should_process(url)
+            store.mark_pending(url)  # run dies before mark_processed/mark_failed
+        store.mark_pending(url)
+        assert store.retry_count(url) == MAX_ATTEMPTS
+        assert not store.should_process(url)
+
+
+def test_release_of_a_retry_keeps_earlier_failures(tmp_path):
+    url = "https://example.com/retry"
+    with _store(tmp_path) as store:
+        store.mark_pending(url)
+        store.mark_failed(url)
+        store.mark_pending(url)
+        store.release(url)
+        assert store.retry_count(url) == 1
+        assert store.should_process(url)

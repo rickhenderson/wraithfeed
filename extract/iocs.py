@@ -11,6 +11,7 @@ Written by Claude Code for Rick Henderson.
 
 from __future__ import annotations
 
+import bisect
 import re
 from dataclasses import dataclass
 
@@ -60,14 +61,16 @@ class Candidate:
 # hashes, registry keys, btc) are claimed first so a later, looser pattern
 # (domain) can't re-match a substring already spoken for.
 
+# Repetitions are bounded so each match attempt does bounded work; unbounded
+# ones made scanning quadratic (a 40 KB "a.a.a..." string took ~9s).
 _PATTERNS: list[tuple[str, re.Pattern]] = [
-    ("url", re.compile(r"\bhttps?://[^\s'\"<>\)\]]+", re.IGNORECASE)),
-    ("email-src", re.compile(r"\b[\w.+-]+@[\w-]+(?:\.[\w-]+)+\b")),
+    ("url", re.compile(r"\bhttps?://[^\s'\"<>\)\]]{1,2048}", re.IGNORECASE)),
+    ("email-src", re.compile(r"\b[\w.+-]{1,64}@[\w-]{1,63}(?:\.[\w-]{1,63}){1,10}\b")),
     (
         "registry-key",
         re.compile(
             r"\b(?:HKEY_LOCAL_MACHINE|HKEY_CURRENT_USER|HKEY_CLASSES_ROOT|"
-            r"HKEY_USERS|HKLM|HKCU)\\[^\s\"']+",
+            r"HKEY_USERS|HKLM|HKCU)\\[^\s\"']{1,512}",
             re.IGNORECASE,
         ),
     ),
@@ -79,7 +82,7 @@ _PATTERNS: list[tuple[str, re.Pattern]] = [
     (
         "domain",
         re.compile(
-            r"\b(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+"
+            r"\b(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.){1,10}"
             r"[a-zA-Z]{2,24}\b"
         ),
     ),
@@ -111,11 +114,22 @@ def extract_candidates(text: str) -> list[Candidate]:
     """
     text = refang(text)
 
-    claimed: list[tuple[int, int]] = []  # (start, end) spans already matched
+    # Claimed spans never overlap each other, so keeping them sorted means a
+    # new span can only collide with its immediate neighbours.
+    claimed_starts: list[int] = []
+    claimed_ends: list[int] = []
     found: list[tuple[int, str, str]] = []  # (start, type, value)
 
     def overlaps(start: int, end: int) -> bool:
-        return any(start < c_end and end > c_start for c_start, c_end in claimed)
+        i = bisect.bisect_right(claimed_starts, start)
+        if i > 0 and claimed_ends[i - 1] > start:
+            return True
+        return i < len(claimed_starts) and claimed_starts[i] < end
+
+    def claim(start: int, end: int) -> None:
+        i = bisect.bisect_right(claimed_starts, start)
+        claimed_starts.insert(i, start)
+        claimed_ends.insert(i, end)
 
     for type_, pattern in _PATTERNS:
         for m in pattern.finditer(text):
@@ -135,7 +149,7 @@ def extract_candidates(text: str) -> list[Candidate]:
             if type_ == "domain" and _looks_like_filename(value):
                 continue
 
-            claimed.append((start, end))
+            claim(start, end)
             found.append((start, type_, value))
 
     found.sort(key=lambda item: item[0])

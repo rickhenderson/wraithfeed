@@ -40,6 +40,8 @@ STATUS_PENDING = "pending"
 STATUS_PROCESSED = "processed"
 STATUS_FAILED = "failed"
 
+MAX_ATTEMPTS = 3
+
 
 def _hash_url(url: str) -> str:
     return hashlib.sha256(url.encode("utf-8")).hexdigest()
@@ -92,14 +94,29 @@ class SeenStore:
         ).fetchone()
         return row is not None
 
+    def should_process(self, url: str) -> bool:
+        """True for new URLs, and for unfinished ones that haven't used up MAX_ATTEMPTS."""
+        row = self.conn.execute(
+            "SELECT status, retry_count FROM seen WHERE url_hash = ?", (_hash_url(url),)
+        ).fetchone()
+        if row is None:
+            return True
+        status, retries = row
+        return status != STATUS_PROCESSED and retries < MAX_ATTEMPTS
+
     def mark_pending(self, url: str) -> None:
         """Record that a URL has been picked up for processing."""
         now = _now()
+        # Still 'pending' at pickup means the previous run died mid-article:
+        # count that as a failed attempt so a crashing article can't loop forever.
         self.conn.execute(
             """
             INSERT INTO seen (url_hash, url, status, retry_count, first_seen_at, updated_at)
             VALUES (?, ?, ?, 0, ?, ?)
-            ON CONFLICT(url_hash) DO UPDATE SET updated_at = excluded.updated_at
+            ON CONFLICT(url_hash) DO UPDATE SET
+                retry_count = seen.retry_count + (seen.status = 'pending'),
+                status = excluded.status,
+                updated_at = excluded.updated_at
             """,
             (_hash_url(url), url, STATUS_PENDING, now, now),
         )
@@ -134,9 +151,15 @@ class SeenStore:
         For when the run aborts on a problem that isn't the article's fault
         (bad API key, unknown model) — the article shouldn't be charged a retry.
         """
+        url_hash = _hash_url(url)
         self.conn.execute(
-            "DELETE FROM seen WHERE url_hash = ? AND status = ?",
-            (_hash_url(url), STATUS_PENDING),
+            "DELETE FROM seen WHERE url_hash = ? AND status = ? AND retry_count = 0",
+            (url_hash, STATUS_PENDING),
+        )
+        # A retry keeps its earlier failures on record; it just isn't charged for this one.
+        self.conn.execute(
+            "UPDATE seen SET status = ?, updated_at = ? WHERE url_hash = ? AND status = ?",
+            (STATUS_FAILED, _now(), url_hash, STATUS_PENDING),
         )
         self.conn.commit()
 

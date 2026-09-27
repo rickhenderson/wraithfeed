@@ -1,4 +1,7 @@
+import time
 from pathlib import Path
+
+import pytest
 
 from extract.iocs import Candidate, extract_candidates, refang
 
@@ -58,3 +61,22 @@ def test_indices_are_stable_and_sequential():
     text = open(FIXTURES / "sample_article_01.txt").read()
     candidates = extract_candidates(text)
     assert [c.idx for c in candidates] == list(range(len(candidates)))
+
+
+@pytest.mark.parametrize("text", ["a." * 50000 + "!", "x@" + "a." * 50000 + "1", "HKLM\\" * 20000])
+def test_pathological_input_is_fast(text):
+    start = time.perf_counter()
+    extract_candidates(text)
+    assert time.perf_counter() - start < 2
+
+
+def test_many_candidates_scale_linearly():
+    text = " ".join(f"10.{i // 65536 % 256}.{i // 256 % 256}.{i % 256}" for i in range(50000))
+    start = time.perf_counter()
+    assert len(extract_candidates(text)) == 50000
+    assert time.perf_counter() - start < 3
+
+
+def test_overlapping_spans_still_claimed_by_higher_priority_pattern():
+    values = [(c.type, c.value) for c in extract_candidates("see https://evil.example.com/x and evil.example.com")]
+    assert values == [("url", "https://evil.example.com/x"), ("domain", "evil.example.com")]
