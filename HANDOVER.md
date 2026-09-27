@@ -90,7 +90,7 @@ the model to judge recency.
 | `validate/schema.py` | pydantic model for the extraction schema | not started |
 | `validate/indicators.py` | index resolution, type/value match, warninglist check | not started |
 | `misp/writer.py` | PyMISP event/object/attribute construction, dedupe-on-write | not started |
-| `cli.py` | `run`, `--dry-run`, `--since`, `--source`, `--limit` | wired for stages 1-2-3-4-5 only; every run is currently dry-run since there's no write stage yet |
+| `cli.py` | `run`, `--dry-run`, `--since`, `--source`, `--limit` (per source) | wired for stages 1-2-3-4-5 only; every run is currently dry-run since there's no write stage yet |
 
 Stages 1 (`collect`), 2 (`dedupe`), 3 (`triage`), 4 (`fetch`), and 5
 (`candidates`) are chained end-to-end via `cli.py run` and have been
@@ -144,7 +144,7 @@ cleanly on Unit 42 (WordPress) but produced nav boilerplate instead of
 article text on a SANS ISC diary page — a known gap to account for when the
 LLM stages are wired in, not yet fixed.
 
-18/18 tests passing (`pytest`). New deps since project start: `feedparser`,
+47/47 tests passing (`pytest`). New deps since project start: `feedparser`,
 `trafilatura` (pinned in `requirements.txt`).
 
 ---
@@ -291,10 +291,6 @@ document.
   Current schema assumes one event per article.
 - Retention/aging policy for events not reviewed within N days.
 - Whether to auto-tag by sector/region galaxy or leave those as plain tags.
-- `cli.py run --limit N` (without `--source`) consumes the limit greedily in
-  `SOURCES` dict order, so a small limit can exhaust itself on the first
-  source and never reach the others. Fine for manual testing; would need a
-  round-robin pass if used unattended before all sources are populated.
 - Remaining narrative vendor feed URLs (Talos, Securelist, Elastic, Sekoia,
   MSTIC, ESET, Huntress, Trend Micro, Proofpoint) still need to be found and
   confirmed.

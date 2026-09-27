@@ -64,6 +64,26 @@ def test_limit_counts_failed_articles(pipeline, tmp_path):
     assert count == 2
 
 
+def test_limit_applies_per_source(monkeypatch, tmp_path):
+    monkeypatch.setattr(cli, "SOURCES", {"A": "https://a.test/feed", "B": "https://b.test/feed"})
+    monkeypatch.setattr(
+        cli,
+        "poll_feed",
+        lambda url, name, max_age_days: [
+            FeedItem(source=name, title="t", url=f"https://{name}.test/{i}",
+                     published=datetime.now(timezone.utc), summary="s")
+            for i in range(5)
+        ],
+    )
+    monkeypatch.setattr(cli, "get_provider", lambda stage: _Provider("NO"))
+    db = str(tmp_path / "db")
+    count = cli.run(db_path=db, limit=2, out=io.StringIO())
+    assert count == 4
+    with SeenStore(db) as store:
+        assert store.is_seen("https://B.test/1")
+        assert not store.is_seen("https://B.test/2")
+
+
 def test_transient_error_fails_article_and_continues(pipeline, tmp_path):
     provider = _Provider(error=LLMError("timeout", fatal=False))
     pipeline(provider)

@@ -62,7 +62,7 @@ def run(
             failed = 0
 
             for item in items:
-                if limit is not None and processed_count >= limit:
+                if limit is not None and processed + failed >= limit:
                     break
                 if store.is_seen(item.url):
                     continue
@@ -115,9 +115,6 @@ def run(
 
             store.log_run(RunStats(source=name, collected=collected, processed=processed, failed=failed))
 
-            if limit is not None and processed_count >= limit:
-                break
-
     return processed_count
 
 
@@ -130,7 +127,7 @@ def main(argv: list[str] | None = None) -> int:
     run_parser.add_argument("--db", default=DEFAULT_DB_PATH, help="path to the seen-store SQLite DB")
     run_parser.add_argument("--source", choices=sorted(SOURCES), help="restrict to a single source")
     run_parser.add_argument("--since", type=int, default=30, help="max article age in days")
-    run_parser.add_argument("--limit", type=int, default=None, help="max articles to process this run")
+    run_parser.add_argument("--limit", type=int, default=None, help="max articles to process per source this run")
     run_parser.add_argument(
         "--dry-run",
         action="store_true",
