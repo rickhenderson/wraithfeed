@@ -291,6 +291,30 @@ document.
 
 ---
 
+## Definition of done (portfolio scope, set 2026-09-27)
+
+Wraithfeed is a portfolio piece that only needs to run locally. It is done
+when a reviewer can clone it, run one command, and watch an article become a
+reviewed, unpublished MISP event, with the index-only indicator design visible.
+Anything not on this list is out of scope; don't start it.
+
+- [ ] Stage 6 `llm/structure.py`: one working prompt/model (local Ollama with
+      JSON-schema `format`; API model optional for quality).
+- [ ] Stage 7 `validate/`: schema check, index resolution, warninglists, plus
+      the malformed-output tests listed under Testing expectations.
+- [ ] Stage 8 `misp/writer.py`: unpublished events only, behind an explicit
+      `--write` flag; `--dry-run` emits the proposed event JSON.
+- [ ] README: pipeline diagram, why index-only, triage benchmark, security
+      hardening, sample dry-run output, screenshots of an event in MISP.
+- [ ] Demo mode: a saved article fixture that runs end to end with no live
+      feeds and no MISP instance.
+
+Future work (list in the README, don't build): remaining vendor feeds,
+structured feeds (ThreatFox, MalwareBazaar, URLhaus, CISA KEV), VPS/cloud
+hosting, scheduling, and everything under Open items below.
+
+---
+
 ## Open items
 
 - MITRE technique extraction quality is unverified. May need a constrained
