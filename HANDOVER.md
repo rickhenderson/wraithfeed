@@ -87,8 +87,8 @@ the model to judge recency.
 | `extract/iocs.py` | regex candidates, defang normalization, indexing | done |
 | `llm/triage.py` | binary relevance call | done |
 | `llm/structure.py` | main extraction call, returns raw JSON | not started |
-| `validate/schema.py` | pydantic model for the extraction schema | not started |
-| `validate/indicators.py` | index resolution, type/value match, warninglist check | not started |
+| `validate/schema.py` | pydantic model for the extraction schema | done |
+| `validate/indicators.py` | index resolution, type/value match, warninglist check | done (not yet wired into `cli.py`; needs stage 6) |
 | `misp/writer.py` | PyMISP event/object/attribute construction, dedupe-on-write | not started |
 | `cli.py` | `run`, `--dry-run`, `--since`, `--source`, `--limit` (per source) | wired for stages 1-2-3-4-5 only; every run is currently dry-run since there's no write stage yet |
 
@@ -152,8 +152,8 @@ cleanly on Unit 42 (WordPress) but produced nav boilerplate instead of
 article text on a SANS ISC diary page — a known gap to account for when the
 LLM stages are wired in, not yet fixed.
 
-47/47 tests passing (`pytest`). New deps since project start: `feedparser`,
-`trafilatura` (pinned in `requirements.txt`).
+114/114 tests passing (`pytest`). New deps since project start: `feedparser`,
+`trafilatura`, `pydantic` (pinned in `requirements.txt`).
 
 ---
 
@@ -188,6 +188,24 @@ Irrelevant articles return `{"relevant": false, "reason": "..."}` and nothing el
 
 Enforce this with pydantic. Reject on: unknown `idx`, type mismatch against the
 resolved candidate value, missing required fields, prose outside the JSON body.
+
+As implemented in `validate/` (2026-09-27):
+- Required: `relevant`, `event_info`, `summary`, `indicators`. Other lists
+  default to empty; `attribution_confidence` and `first_seen` may be null.
+- Also rejected: any unknown field (so a model can't add a `value`), non-integer
+  `idx` (`"3"`, `3.0`, `true`), the same `idx` twice, duplicate JSON keys, bad
+  CVE/technique ids, `first_seen` in the future.
+- A regex `domain` candidate may be reported as `domain` or `hostname`; types
+  the regex never produces (`filename`, `mutex`, `user-agent`) can't match.
+- `validate_output()` raises `ExtractionRejected` (discard the article) or
+  `WarninglistUnavailable` (MISP down or every list disabled: retry later).
+  Warninglists are checked on the value and, for URLs/emails, the host too.
+- The two "VPN providers and datacenters" lists are advisory
+  (`ADVISORY_LISTS`): hits are recorded but don't force `to_ids=False`, since
+  they cover whole hosting ranges where most attacker C2 lives.
+- All 125 warninglists were enabled on the local MISP on 2026-09-27; they
+  ship disabled. Enable them via `POST /warninglists/toggleEnable` with
+  `{"id": [...], "enabled": 1}` (`enableWarninglist` errors on MISP 2.5.40).
 
 ---
 
@@ -300,7 +318,7 @@ Anything not on this list is out of scope; don't start it.
 
 - [ ] Stage 6 `llm/structure.py`: one working prompt/model (local Ollama with
       JSON-schema `format`; API model optional for quality).
-- [ ] Stage 7 `validate/`: schema check, index resolution, warninglists, plus
+- [x] Stage 7 `validate/`: schema check, index resolution, warninglists, plus
       the malformed-output tests listed under Testing expectations.
 - [ ] Stage 8 `misp/writer.py`: unpublished events only, behind an explicit
       `--write` flag; `--dry-run` emits the proposed event JSON.
