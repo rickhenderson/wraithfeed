@@ -8,6 +8,7 @@ regardless of what the model said (HANDOVER.md MISP writing conventions).
 from __future__ import annotations
 
 import os
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Protocol
 from urllib.parse import urlsplit
@@ -15,7 +16,9 @@ from urllib.parse import urlsplit
 import requests
 
 from extract.iocs import Candidate
-from validate.schema import Extraction, ExtractionRejected, Irrelevant, parse_extraction
+from extract.techniques import TechniqueMention
+from validate import techniques
+from validate.schema import AttackPattern, Extraction, ExtractionRejected, Irrelevant, parse_extraction
 
 # Model types each regex candidate type may be reported as. The regex can't
 # tell a registered domain from a hostname, so either is accepted for "domain";
@@ -112,6 +115,28 @@ class ResolvedIndicator:
 class ValidatedExtraction:
     extraction: Extraction
     indicators: list[ResolvedIndicator]
+    # Technique ids the article cites that aren't current ATT&CK: "T1562.001 (revoked)".
+    dropped_techniques: tuple[str, ...] = ()
+
+
+def attach_techniques(
+    extraction: Extraction, mentions: Sequence[TechniqueMention]
+) -> tuple[Extraction, tuple[str, ...]]:
+    """Set attack_patterns from technique ids the article itself cites.
+
+    Only ids that are current ATT&CK techniques are kept, with the article's own
+    surrounding text as evidence. Anything the model put in attack_patterns is
+    discarded: it was never asked for them and can't be trusted to map behavior
+    to ids. Cited ids that aren't current are reported, e.g. "T1562.001 (revoked)".
+    """
+    kept, dropped = [], []
+    for mention in mentions:
+        state = techniques.status(mention.technique_id)
+        if state == "current":
+            kept.append(AttackPattern(technique_id=mention.technique_id, evidence=mention.context))
+        else:
+            dropped.append(f"{mention.technique_id} ({state})")
+    return extraction.model_copy(update={"attack_patterns": kept}), tuple(dropped)
 
 
 def _lookup_keys(type_: str, value: str) -> list[str]:
@@ -168,10 +193,14 @@ def resolve_indicators(
 
 
 def validate_output(
-    raw: str, candidates: list[Candidate], warninglist: Warninglist
+    raw: str,
+    candidates: list[Candidate],
+    warninglist: Warninglist,
+    technique_mentions: Sequence[TechniqueMention] = (),
 ) -> ValidatedExtraction | Irrelevant:
     """Full stage 7. Raises ExtractionRejected (discard) or WarninglistUnavailable (retry)."""
     parsed = parse_extraction(raw)
     if isinstance(parsed, Irrelevant):
         return parsed
-    return ValidatedExtraction(parsed, resolve_indicators(parsed, candidates, warninglist))
+    parsed, dropped = attach_techniques(parsed, technique_mentions)
+    return ValidatedExtraction(parsed, resolve_indicators(parsed, candidates, warninglist), dropped)

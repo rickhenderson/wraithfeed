@@ -23,7 +23,6 @@ ROLES = Literal[
 ]
 MAX_SUMMARY_WORDS = 60
 
-_TECHNIQUE_RE = re.compile(r"^T\d{4}(?:\.\d{3})?$")
 _CVE_RE = re.compile(r"^CVE-\d{4}-\d{4,7}$")
 
 
@@ -36,15 +35,10 @@ class _Strict(BaseModel):
 
 
 class AttackPattern(_Strict):
-    technique_id: str
+    # Whether the id exists is checked against the ATT&CK list in stage 7b
+    # (validate.techniques); an unknown id drops this entry, not the article.
+    technique_id: str = Field(min_length=1, max_length=40)
     evidence: str = Field(min_length=1, max_length=500)
-
-    @field_validator("technique_id")
-    @classmethod
-    def _technique_format(cls, v: str) -> str:
-        if not _TECHNIQUE_RE.match(v):
-            raise ValueError(f"not a MITRE technique id: {v!r}")
-        return v
 
 
 class IndicatorRef(_Strict):

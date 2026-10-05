@@ -137,11 +137,11 @@ def test_domain_may_be_reported_as_hostname():
         {"first_seen": "Sept 2026"},
         {"first_seen": "2999-01-01"},
         {"cves": ["CVE-26-1"]},
-        {"attack_patterns": [{"technique_id": "Persistence", "evidence": "x"}]},
+        {"attack_patterns": [{"technique_id": "", "evidence": "x"}]},
         {"event_info": ""},
         {"unexpected_field": 1},
     ],
-    ids=["long-summary", "bad-confidence", "bad-date", "future-date", "bad-cve", "bad-technique", "empty-info", "extra-field"],
+    ids=["long-summary", "bad-confidence", "bad-date", "future-date", "bad-cve", "empty-technique-id", "empty-info", "extra-field"],
 )
 def test_field_violations_rejected(overrides):
     with pytest.raises(ExtractionRejected):
@@ -248,3 +248,53 @@ def test_from_env_reads_verify_flag(monkeypatch):
     monkeypatch.delenv("MISP_KEY")
     with pytest.raises(WarninglistUnavailable):
         MispWarninglists.from_env()
+
+
+# --- ATT&CK techniques: only ids the article cites, checked against the list ----
+
+from extract.techniques import TechniqueMention
+from validate import techniques
+
+
+def _mention(technique_id, context="the article cites it here"):
+    return TechniqueMention(technique_id, context)
+
+
+def test_cited_current_technique_is_attached_with_article_context():
+    result = validate_output(_doc(), CANDIDATES, NO_HITS, [_mention("T1059.001", "ran PowerShell (T1059.001)")])
+    assert [(p.technique_id, p.evidence) for p in result.extraction.attack_patterns] == [
+        ("T1059.001", "ran PowerShell (T1059.001)")
+    ]
+    assert result.dropped_techniques == ()
+
+
+def test_model_supplied_attack_patterns_are_discarded():
+    raw = _doc(attack_patterns=[{"technique_id": "T1059.001", "evidence": "model says so"}])
+    result = validate_output(raw, CANDIDATES, NO_HITS)
+    assert result.extraction.attack_patterns == []
+
+
+@pytest.mark.parametrize(
+    "technique_id, reason",
+    [
+        ("T1133.004", "unknown"),  # an id a model invented in a live run
+        ("T9999", "unknown"),
+        ("T1562.001", "revoked"),  # real, but superseded in a later ATT&CK release
+        ("T1002", "revoked"),
+    ],
+)
+def test_cited_but_not_current_technique_is_dropped_and_reported(technique_id, reason):
+    mentions = [_mention("T1059.001"), _mention(technique_id)]
+    result = validate_output(_doc(), CANDIDATES, NO_HITS, mentions)
+    assert [p.technique_id for p in result.extraction.attack_patterns] == ["T1059.001"]
+    assert result.dropped_techniques == (f"{technique_id} ({reason})",)
+    assert [i.value for i in result.indicators] == ["update-check.top"]
+
+
+def test_technique_list_has_current_and_retired_entries():
+    assert techniques.status("T1059.001") == "current"
+    assert techniques.status("T1562.001") == "revoked"
+    assert techniques.status("T0000") == "unknown"
+    assert techniques.name("T1059.001") == "PowerShell"
+    assert len(techniques.current_ids()) > 500
+    assert all("." not in t for t, _ in techniques.current_parents())
