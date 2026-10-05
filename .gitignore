@@ -65,6 +65,8 @@ db.sqlite3-journal
 data/
 # ...but not the committed ATT&CK technique list
 !validate/data/
+# Output of `cli.py demo`
+demo_output/
 
 # Flask stuff:
 instance/

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from typing import Protocol
 from urllib.parse import urlsplit
 
@@ -204,3 +204,13 @@ def validate_output(
         return parsed
     parsed, dropped = attach_techniques(parsed, technique_mentions)
     return ValidatedExtraction(parsed, resolve_indicators(parsed, candidates, warninglist), dropped)
+
+
+def proposed_event(validated: ValidatedExtraction) -> dict:
+    """The event stage 8 would write: model fields plus code-resolved indicator values."""
+    event = validated.extraction.model_dump(mode="json", exclude={"indicators"})
+    event["indicators"] = [
+        {**asdict(i), "warninglist_hits": list(i.warninglist_hits)} for i in validated.indicators
+    ]
+    event["dropped_techniques"] = list(validated.dropped_techniques)
+    return event

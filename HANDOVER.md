@@ -183,6 +183,22 @@ conventions above, on purpose:
 - MISP unreachable or search failing aborts the run and releases the article;
   an event MISP rejects marks that article failed and the run continues.
 
+### Demo mode (2026-10-04)
+
+`python cli.py demo [--out DIR]` replays `tests/fixtures/sample_article_unit42.html`
+offline: real article extraction, candidates, stage 6 prompt, stage 7
+validation and event building, but a *recorded* model response
+(`demo/model_response.json`, raw output of `qwen3.5:latest`) and *recorded*
+warninglist hits (`demo/warninglist_hits.json`, from the local MISP). It also
+replays three tampered copies of the response (invented idx, smuggled `value`
+field, prose wrapper) to show stage 7 rejecting them. Output goes to
+`demo_output/` (gitignored): the event as `{"Event": ...}` JSON and a finding
+artifact marked `status: demo`. It never contacts MISP, and
+`tests/test_demo.py` fails if it opens a socket. `scripts/record_demo.py`
+re-records the inputs (needs Ollama and MISP); `tests/test_demo.py` says when
+an extractor change makes the recording stale. The demo's event JSON has not
+been tried through MISP's import.
+
 ### Triage (stage 3) — local model setup (original)
 
 Triage uses a local Ollama model, not the commercial API model, per the
@@ -390,7 +406,7 @@ Anything not on this list is out of scope; don't start it.
       `--write` flag; `--dry-run` emits the proposed event JSON.
 - [ ] README: pipeline diagram, why index-only, triage benchmark, security
       hardening, sample dry-run output, screenshots of an event in MISP.
-- [ ] Demo mode: a saved article fixture that runs end to end with no live
+- [x] Demo mode (`cli.py demo`, see below): a saved article fixture that runs end to end with no live
       feeds and no MISP instance.
 
 Future work (list in the README, don't build): remaining vendor feeds,

@@ -1,0 +1,15 @@
+{
+  "104.21.91.101": [
+    "List of known Cloudflare IP ranges"
+  ],
+  "172.67.215.154": [
+    "List of known Cloudflare IP ranges"
+  ],
+  "registry.npmjs.org": [
+    "Top 20 000 websites from Cisco Umbrella",
+    "Top 1,000,000 most-used sites from Tranco"
+  ],
+  "search.sigstore.dev": [
+    "Top 1,000,000 most-used sites from Tranco"
+  ]
+}

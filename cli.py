@@ -22,7 +22,6 @@ import argparse
 import json
 import os
 import sys
-from dataclasses import asdict
 
 from dotenv import load_dotenv
 
@@ -41,21 +40,12 @@ from validate.indicators import (
     ValidatedExtraction,
     Warninglist,
     WarninglistUnavailable,
+    proposed_event,
     validate_output,
 )
 from validate.schema import ExtractionRejected
 
 DEFAULT_DB_PATH = "data/wraithfeed.db"
-
-
-def proposed_event(validated: ValidatedExtraction) -> dict:
-    """The event stage 8 would write: model fields plus code-resolved indicator values."""
-    event = validated.extraction.model_dump(mode="json", exclude={"indicators"})
-    event["indicators"] = [
-        {**asdict(i), "warninglist_hits": list(i.warninglist_hits)} for i in validated.indicators
-    ]
-    event["dropped_techniques"] = list(validated.dropped_techniques)
-    return event
 
 
 def run(
@@ -223,6 +213,11 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="wraithfeed")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
+    demo_parser = subparsers.add_parser(
+        "demo", help="replay one saved article through the pipeline offline (no network, model server or MISP)"
+    )
+    demo_parser.add_argument("--out", default="demo_output", help="where to write the MISP event JSON and artifact")
+
     run_parser = subparsers.add_parser("run", help="collect, triage, extract, validate, and optionally write MISP events")
     run_parser.add_argument("--db", default=DEFAULT_DB_PATH, help="path to the seen-store SQLite DB")
     run_parser.add_argument("--source", choices=sorted(SOURCES), help="restrict to a single source")
@@ -242,6 +237,11 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     args = parser.parse_args(argv)
+
+    if args.command == "demo":
+        from demo.run import run_demo  # imported here so `run` never loads demo assets
+
+        return run_demo(args.out)
 
     if args.command == "run":
         try:

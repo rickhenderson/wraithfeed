@@ -1,0 +1,10 @@
+{
+  "source": "Unit 42",
+  "url": "https://unit42.paloaltonetworks.com/chaindrop-npm-worm-analysis/",
+  "published": "2026-08-06T00:00:00+00:00",
+  "article_file": "tests/fixtures/sample_article_unit42.html",
+  "recorded_at": "2026-10-05T01:55:31+00:00",
+  "structure_model": "ollama/qwen3.5:latest",
+  "num_ctx": 12288,
+  "candidate_count": 27
+}

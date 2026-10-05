@@ -1,0 +1,80 @@
+{
+  "relevant": true,
+  "event_info": "ChainDrop - npm worm - Unit 42 - 2026-08-04",
+  "summary": "A self-propagating npm worm named ChainDrop infects packages by injecting a dropper that steals cloud credentials, tokens, and SSH keys. It uses Ethereum smart contracts for C2 domain rotation and exfiltrates data via GitHub repositories or specific domains. The attack targets developers and CI pipelines.",
+  "indicators": [
+    {
+      "idx": 10,
+      "type": "domain",
+      "role": "c2",
+      "to_ids": true,
+      "comment": "Primary C2 domain used for exfiltration and receiving remote code."
+    },
+    {
+      "idx": 11,
+      "type": "domain",
+      "role": "c2",
+      "to_ids": true,
+      "comment": "Secondary C2 domain listed in smart contract."
+    },
+    {
+      "idx": 12,
+      "type": "domain",
+      "role": "c2",
+      "to_ids": true,
+      "comment": "Secondary C2 domain listed in smart contract."
+    },
+    {
+      "idx": 13,
+      "type": "url",
+      "role": "c2",
+      "to_ids": true,
+      "comment": "HTTPS endpoint for encrypted exfiltration and RCE."
+    },
+    {
+      "idx": 14,
+      "type": "domain",
+      "role": "c2",
+      "to_ids": true,
+      "comment": "New C2 domain rotated via Ethereum smart contract on Aug 4, 2026."
+    },
+    {
+      "idx": 15,
+      "type": "sha256",
+      "role": "unknown",
+      "to_ids": false,
+      "comment": "Cloudflare CDN stylesheet; shared infrastructure not actionable as malware indicator."
+    },
+    {
+      "idx": 16,
+      "type": "ip-dst",
+      "role": "c2",
+      "to_ids": true,
+      "comment": "Destination IP for C2 domain awqhnjewqjkl.icu."
+    },
+    {
+      "idx": 17,
+      "type": "ip-dst",
+      "role": "c2",
+      "to_ids": true,
+      "comment": "Destination IP for C2 domain awqhnjewqjkl.icu."
+    }
+  ],
+  "malware_families": [
+    "ChainDrop"
+  ],
+  "threat_actors": [],
+  "attribution_confidence": null,
+  "targeted_sectors": [
+    "Technology",
+    "Development"
+  ],
+  "targeted_regions": [
+    "North America",
+    "Europe",
+    "Asia",
+    "Africa"
+  ],
+  "first_seen": "2026-05-22",
+  "cves": []
+}
