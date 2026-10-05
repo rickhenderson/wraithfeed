@@ -85,18 +85,18 @@ the model to judge recency.
 | `store/seen.py` | SQLite dedupe on `sha256(url)`, plus run log | done |
 | `extract/article.py` | trafilatura → clean text + tables | done |
 | `extract/iocs.py` | regex candidates, defang normalization, indexing | done |
+| `extract/techniques.py` | ATT&CK ids the article cites (regex) | done |
 | `llm/triage.py` | binary relevance call | done |
-| `llm/structure.py` | main extraction call, returns raw JSON | not started |
+| `llm/structure.py` | main extraction call, returns raw JSON | done |
 | `validate/schema.py` | pydantic model for the extraction schema | done |
-| `validate/indicators.py` | index resolution, type/value match, warninglist check | done (not yet wired into `cli.py`; needs stage 6) |
-| `misp/writer.py` | PyMISP event/object/attribute construction, dedupe-on-write | not started |
-| `cli.py` | `run`, `--dry-run`, `--since`, `--source`, `--limit` (per source) | wired for stages 1-2-3-4-5 only; every run is currently dry-run since there's no write stage yet |
+| `validate/indicators.py` | index resolution, type/value match, warninglist check, technique filter | done |
+| `misp/writer.py` | PyMISP event/object/attribute construction, dedupe-on-write | done; tested with fakes only, never run against a live MISP |
+| `store/artifacts.py` | JSON artifact per finding written to MISP | done |
+| `cli.py` | `run`, `--dry-run`, `--since`, `--source`, `--limit` (per source) | `--write` (unpublished MISP events + JSON artifacts) or `--dry-run` (default), `--artifact-dir`; wired for stages 1-8 |
 
-Stages 1 (`collect`), 2 (`dedupe`), 3 (`triage`), 4 (`fetch`), and 5
-(`candidates`) are chained end-to-end via `cli.py run` and have been
-smoke-tested against live feeds/articles. Stages 6, 7, 8 (structure/validate/
-MISP write) remain to be built — `cli.py`'s shape will need to change once
-they exist.
+Stages 1-7 (collect, dedupe, triage, fetch, candidates, structure, validate)
+are chained end-to-end via `cli.py run` and smoke-tested against live feeds
+and articles. Stage 8 is built (`--write`) but has not yet been exercised against a live MISP.
 
 ### LLM providers (update 2026-09-24)
 
@@ -116,6 +116,72 @@ ComfyUI holds ~17 GB RAM when running, so stop it before LLM work
 whose feed summary is just `Introduction&#xd;`. The triage system prompt moved from the
 Modelfile into `llm/triage.py`, so every provider gets it. The Ollama setup
 below still works via `WRAITHFEED_TRIAGE_PROVIDER=ollama`.
+
+### Structure (stage 6) — status (2026-10-04)
+
+`llm/structure.py` builds the reference prompt plus the indexed CANDIDATES list
+and returns the model's raw text; stage 7 is the only parser. Ollama gets the
+schema as `format` (derived from `validate/schema.py`, so it can't drift);
+other providers ignore it and rely on stage 7. Per-stage `TIMEOUT` and (Ollama)
+`NUM_CTX` env vars were added for it. Articles are cut at 24k chars and
+candidates absent from the visible text are hidden (idx never renumbered).
+
+Live check on `tests/fixtures/sample_article_unit42.html`, 12288 ctx, real
+stage 7 but an empty warninglist: `llama3.2:3b` (9 s) copied schema
+placeholders (`T1234.xxxx`) and was rejected; `qwen3.5:latest` (45 s, ~86% on
+GPU) passed. Its output still needs review: it reported two Cloudflare IPs as
+C2 and `search.sigstore.dev` as exfil with `to_ids` true, which real
+warninglists should catch. One article is not a benchmark; model choice for
+stage 6 is still open.
+
+### ATT&CK techniques (decided 2026-10-04)
+
+Techniques are code-derived, not model-derived. The model is not asked for
+`attack_patterns` (removed from its prompt and decoding schema; anything it
+emits anyway is discarded in stage 7). `extract/techniques.py` finds technique
+ids the article cites (`T1059.001`, or `attack.mitre.org/techniques/T1059/001/`)
+and stage 7 keeps those that are current in `validate/data/attack_techniques.json`,
+using the article's surrounding text as evidence. Cited ids that are not current
+are reported in `dropped_techniques` (`T1562.001 (revoked)`), never repaired.
+
+Why: with the real ids as an enum the model returned valid ids unrelated to its
+own evidence (DGA/Fast Flux for a web-shell chain); a wrong valid id is worse
+than none. Listing technique names in the prompt costs ~3.1k tokens and won't
+fit the 12k context. Trade-off: coverage depends on the source. A DFIR Report
+article cited 38 current ids; Unit 42 posts and older DFIR pages cite none, and
+techniques an article only describes are not tagged. 201 of 1,222 ids in the
+galaxy are revoked (e.g. all of `T1562`), so older articles will cite some.
+The list is regenerated from MISP's galaxy by `scripts/update_attack_techniques.py`.
+Future work: map described behavior to techniques (model picks technique
+*names* from a list, code resolves them to ids).
+
+### MISP write and artifacts (stage 8, 2026-10-04)
+
+`run --write` saves each finding as JSON under `data/findings/<article date>/`
+(`--artifact-dir` / `WRAITHFEED_ARTIFACT_DIR`) *before* calling MISP, with
+`misp.status: "pending"`, then updates it to `created`, `exists` or `failed`.
+The artifact holds the validated event (values resolved by code), the model's
+raw output and the models used, so it stands on its own without MISP or the
+seen-store. `data/` is gitignored. Dry runs write no artifacts.
+
+Event: org-only distribution, `published=False` (no code path publishes),
+UUID = uuid5(article URL) so one article can never make two events. Hashes,
+URLs, domains/IPs become `file`/`url`/`domain-ip` objects; email, btc, regkey,
+filename, mutex, user-agent stay loose attributes; CVEs become `vulnerability`
+objects. Tags: `tlp:clear`, `source:<domain>`, `wraithfeed:review="pending"`,
+ATT&CK galaxy tags, and plain `wraithfeed:malware-family|threat-actor|sector|region`
+tags (the open "galaxy or plain tags" item: plain). Deviations from the
+conventions above, on purpose:
+- Confidence is tagged `estimative-language:confidence-in-analytic-judgement`,
+  not `likelihood-probability`: high/moderate/low is confidence, and mapping it
+  onto likelihood words would misstate "low confidence" as "unlikely".
+- An existing event for the article URL is left alone ("exists"), not updated.
+  MISP correlates attribute values across events by itself, so there is no
+  separate per-attribute `search` before add.
+- `tlp` and `estimative-language` taxonomies are disabled on the local MISP, so
+  those tags are plain tags until they are enabled.
+- MISP unreachable or search failing aborts the run and releases the article;
+  an event MISP rejects marks that article failed and the run continues.
 
 ### Triage (stage 3) — local model setup (original)
 
@@ -320,7 +386,7 @@ Anything not on this list is out of scope; don't start it.
       JSON-schema `format`; API model optional for quality).
 - [x] Stage 7 `validate/`: schema check, index resolution, warninglists, plus
       the malformed-output tests listed under Testing expectations.
-- [ ] Stage 8 `misp/writer.py`: unpublished events only, behind an explicit
+- [x] Stage 8 `misp/writer.py`: unpublished events only, behind an explicit
       `--write` flag; `--dry-run` emits the proposed event JSON.
 - [ ] README: pipeline diagram, why index-only, triage benchmark, security
       hardening, sample dry-run output, screenshots of an event in MISP.
@@ -335,8 +401,6 @@ hosting, scheduling, and everything under Open items below.
 
 ## Open items
 
-- MITRE technique extraction quality is unverified. May need a constrained
-  vocabulary list injected into the prompt rather than free-form `Txxxx`.
 - No decision yet on handling articles that cover multiple distinct campaigns.
   Current schema assumes one event per article.
 - Retention/aging policy for events not reviewed within N days.
