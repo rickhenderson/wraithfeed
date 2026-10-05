@@ -63,6 +63,8 @@ db.sqlite3-journal
 
 # Wraithfeed local data (SQLite dedupe store, WAL/SHM files)
 data/
+# ...but not the committed ATT&CK technique list
+!validate/data/
 
 # Flask stuff:
 instance/
