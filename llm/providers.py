@@ -25,6 +25,7 @@ from typing import Protocol
 import requests
 
 DEFAULT_TIMEOUT_SECONDS = 30
+DEFAULT_NUM_CTX = 4096
 
 # Per-provider defaults. A stage can override model/base URL via env vars.
 _DEFAULT_MODELS = {
@@ -73,8 +74,15 @@ class Provider(Protocol):
     name: str
     model: str
 
-    def complete(self, system: str, prompt: str, *, max_tokens: int) -> str:
-        """Return the model's text response. Raises LLMError on any failure."""
+    def complete(
+        self, system: str, prompt: str, *, max_tokens: int, json_schema: dict | None = None
+    ) -> str:
+        """Return the model's text response. Raises LLMError on any failure.
+
+        `json_schema` asks the backend to constrain output to that schema where it
+        supports that (Ollama); other backends ignore it, so callers must still
+        validate the output.
+        """
         ...
 
 
@@ -89,7 +97,9 @@ class AnthropicProvider:
         # Credentials resolve from the environment (ANTHROPIC_API_KEY etc).
         self._client = anthropic.Anthropic(timeout=timeout)
 
-    def complete(self, system: str, prompt: str, *, max_tokens: int) -> str:
+    def complete(
+        self, system: str, prompt: str, *, max_tokens: int, json_schema: dict | None = None
+    ) -> str:
         try:
             response = self._client.messages.create(
                 model=self.model,
@@ -129,7 +139,9 @@ class OpenAICompatibleProvider:
         self._headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
         self._timeout = timeout
 
-    def complete(self, system: str, prompt: str, *, max_tokens: int) -> str:
+    def complete(
+        self, system: str, prompt: str, *, max_tokens: int, json_schema: dict | None = None
+    ) -> str:
         body = {
             "model": self.model,
             "messages": [
@@ -154,12 +166,22 @@ class OpenAICompatibleProvider:
 class OllamaProvider:
     name = "ollama"
 
-    def __init__(self, model: str, base_url: str, *, timeout: int = DEFAULT_TIMEOUT_SECONDS):
+    def __init__(
+        self,
+        model: str,
+        base_url: str,
+        *,
+        timeout: int = DEFAULT_TIMEOUT_SECONDS,
+        num_ctx: int = DEFAULT_NUM_CTX,
+    ):
         self.model = model
         self._url = base_url.rstrip("/") + "/api/chat"
         self._timeout = timeout
+        self._num_ctx = num_ctx
 
-    def complete(self, system: str, prompt: str, *, max_tokens: int) -> str:
+    def complete(
+        self, system: str, prompt: str, *, max_tokens: int, json_schema: dict | None = None
+    ) -> str:
         body = {
             "model": self.model,
             "messages": [
@@ -169,8 +191,10 @@ class OllamaProvider:
             "stream": False,
             # Thinking mode burns ~1500 tokens and ~24s per call on qwen3.5.
             "think": False,
-            "options": {"num_ctx": 4096, "temperature": 0, "num_predict": max_tokens},
+            "options": {"num_ctx": self._num_ctx, "temperature": 0, "num_predict": max_tokens},
         }
+        if json_schema is not None:
+            body["format"] = json_schema
         try:
             resp = requests.post(self._url, json=body, timeout=self._timeout)
             resp.raise_for_status()
@@ -192,22 +216,40 @@ def _env(stage: str, key: str) -> str | None:
     return os.environ.get(f"WRAITHFEED_{stage.upper()}_{key}") or os.environ.get(f"WRAITHFEED_LLM_{key}")
 
 
+def _env_int(stage: str, key: str, default: int) -> int:
+    raw = _env(stage, key)
+    if not raw:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        value = 0
+    if value <= 0:
+        raise LLMError(f"WRAITHFEED_{stage.upper()}_{key} must be a positive integer, got {raw!r}", fatal=True)
+    return value
+
+
 def get_provider(stage: str, *, default: str = "anthropic") -> Provider:
-    """Build the provider configured for a pipeline stage ("triage", "structure", ...)."""
+    """Build the provider configured for a pipeline stage ("triage", "structure", ...).
+
+    Besides PROVIDER / MODEL / BASE_URL, a stage may set TIMEOUT (seconds) and,
+    for Ollama, NUM_CTX (context window), e.g. WRAITHFEED_STRUCTURE_NUM_CTX=12288.
+    """
     name = (_env(stage, "PROVIDER") or default).lower()
     if name not in _DEFAULT_MODELS:
         raise LLMError(f"unknown provider {name!r}; expected one of {', '.join(PROVIDERS)}")
 
     model = _env(stage, "MODEL") or _DEFAULT_MODELS[name]
     base_url = _env(stage, "BASE_URL") or _DEFAULT_BASE_URLS.get(name)
+    timeout = _env_int(stage, "TIMEOUT", DEFAULT_TIMEOUT_SECONDS)
 
     if name == "anthropic":
-        return AnthropicProvider(model)
+        return AnthropicProvider(model, timeout=timeout)
     if name == "ollama":
-        return OllamaProvider(model, base_url)
+        return OllamaProvider(model, base_url, timeout=timeout, num_ctx=_env_int(stage, "NUM_CTX", DEFAULT_NUM_CTX))
 
     key_var = _API_KEY_VARS.get(name)
     api_key = os.environ.get(key_var) if key_var else None
     if key_var and not api_key:
         raise LLMError(f"{name} provider needs {key_var} set")
-    return OpenAICompatibleProvider(name, model, base_url, api_key)
+    return OpenAICompatibleProvider(name, model, base_url, api_key, timeout=timeout)
