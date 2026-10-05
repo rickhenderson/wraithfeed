@@ -1,6 +1,6 @@
 # Wraithfeed 
 
-
+```
                                                .         s                                                   ..       
   x=~                                         @88>      :8      .uef^"       oec :                         dF         
  88x.   .e.   .e.     .u    .                 %8P      .88    :d88E         @88888                        '88bu.      
@@ -16,8 +16,9 @@
                                                                     J88"     88>                                      
                                                                     @%       48                                       
                                                                   :"         '8                                       
+```
 
-`Wraithfeed` is an autonomous threat intelligence pipeline that ingests malware/threat intelligence feeds, scores and prioritizes IOC findings, and pushes structured events to MISP. Built for lean security teams who need signal, not noise, from the threat landscape. 👻📡
+`Wraithfeed` is an threat intelligence pipeline that ingests malware/threat intelligence feeds, scores and prioritizes IOC findings, and pushes structured events to MISP. Built for lean security teams who need signal, not noise, from the threat landscape. Can run via cron or by an AI agent. 👻📡
 
 Created: August 5, 2026
 
