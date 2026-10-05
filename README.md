@@ -1,6 +1,6 @@
 # Wraithfeed 
 
-```ASCII
+
                                                .         s                                                   ..       
   x=~                                         @88>      :8      .uef^"       oec :                         dF         
  88x.   .e.   .e.     .u    .                 %8P      .88    :d88E         @88888                        '88bu.      
@@ -16,16 +16,14 @@
                                                                     J88"     88>                                      
                                                                     @%       48                                       
                                                                   :"         '8                                       
-```
 
-`Wraithfeed` is an autonomous threat intelligence pipeline that ingests CVE/KEV and malware feeds, scores and prioritizes findings, generates analyst-ready briefings, and pushes structured events to MISP. Built for lean security teams who need signal, not noise, from the threat landscape. 👻📡
+`Wraithfeed` is an autonomous threat intelligence pipeline that ingests malware/threat intelligence feeds, scores and prioritizes IOC findings, and pushes structured events to MISP. Built for lean security teams who need signal, not noise, from the threat landscape. 👻📡
 
 Created: August 5, 2026
 
 * Initially a portfolio piece
 * You can also take a look at my SBOM scanning vulnerability tool called [KEVScan](https://kevscan.cloud/) which may have a minimal level of external functionality.
-
-* 
+* Extra features for future development could include ingesting CISA KEV vulnerability data, and producing full CTI briefs.
 
 ## Features
 
@@ -41,7 +39,7 @@ pip install -r requirements.txt
 python cli.py demo
 ```
 
-The demo replays one saved article through every stage with **no network, no model server and no MISP**. It writes the MISP event it would create to `demo_output/`. The model response and warninglist hits it uses are recordings of real runs (`scripts/record_demo.py` regenerates them); everything else is the real pipeline code. It also shows what happens when a model misbehaves:
+The demo replays one saved article through every stage with **no network, no model server and no MISP**. It writes the MISP event it would create to `demo_output/`. The model response and MISP warninglist hits it uses are recordings of real runs (`scripts/record_demo.py` regenerates them); everything else is the real pipeline code. It also shows what happens when a model misbehaves:
 
 ```text
 Stage 5  candidates 27 indicator-shaped strings found by regex, numbered; the model may only cite these numbers:
