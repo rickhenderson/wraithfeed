@@ -31,7 +31,7 @@ Created: August 5, 2026
 * Extracts IOCs from a test article: 20260805
 * Stage 6 and save to MISP tested successful: 20261004
 * Stage 6 model comparison, code-derived CVEs, live `--write` of Unit 42 articles: 20261009
-
+* Feature complete 20261009. Only thing left is actual usage and decide if anything else should be added before I wrap up the project.
 
 ## Try it in one command
 
@@ -40,6 +40,8 @@ python3 -m venv venv && . venv/bin/activate
 pip install -r requirements.txt
 python cli.py demo
 ```
+
+<img src="images/wraithfeed-misp-03.png">
 
 The demo replays one saved article through every stage with **no network, no model server and no MISP**. It writes the MISP event it would create to `demo_output/`. The model response and MISP warninglist hits it uses are recordings of real runs (`scripts/record_demo.py` regenerates them); everything else is the real pipeline code. It also shows what happens when a model misbehaves:
 
@@ -167,6 +169,9 @@ Each finding written to MISP is also saved as a standalone JSON file, before the
 
 ### In MISP
 
+<img src="images/wraithfeed-misp-01.png">
+<img src="images/wraithfeed-misp-02.png">
+
 A live run against a local MISP 2.5.40 (an article from The DFIR Report, 2026-06-29) created one event, read back and compared with its artifact. It was unpublished with org-only distribution. Its 11 indicators matched the artifact's values and `to_ids` flags exactly, as `domain-ip` objects. Its 38 ATT&CK galaxy tags resolved to 38 Attack Pattern clusters. One address inside GitHub's published ranges came back with `to_ids` false from the warninglists. Re-running the same article reported `exists` and created nothing.
 
 Two further Unit 42 articles were written on 2026-10-09 with the local qwen3.5 model: a Blinder Tunnel campaign (11 objects, 9 `to_ids` indicators, actor/family/sector/region tags) and a NetScaler zero-day brief (29 objects, 8 of them `vulnerability` objects for the CVEs it names). Both unpublished, org-only. The NetScaler event also shows a weakness: the model returned only the required fields, so it has no actor, family, sector or region tags (see Known limitations).
@@ -245,12 +250,15 @@ Remaining vendor feeds, the structured feeds (ThreatFox, MalwareBazaar, URLhaus,
 
 # References
 
-* [MalwareBazzar Community API](https://bazaar.abuse.ch/api/) (this is currently a portfolio project)
+* [MalwareBazzar Community API](https://bazaar.abuse.ch/api/)
 
 # Experiential Notes
 
 * I learned how to use `pytest`.
 * I learned more about Pythonisms like using `_` as a throw-away variable and using `type_` as a variable name to avoid confusion with the `type` keyword, but argued with Claude that `indicator_type` would be a better variable name. I'm ol' school.
 * On the Claude Pro Plan it really doesn't cost anything extra if you're only coding for a couple of hours a day. It's a nice change from my Hermes Agent project which runs solely on API credits from a number of model providers.
+* I work with Claude step-by-step on every decision, but it definitely feels different when I know what the code does but didn't write it. So my "programmer's" understanding of the project is maybe not as solid as if I had hand-coded the entire thing.
+
+The code is definitely readable, though I would probably add more comments as I read through the code myself.
 
 
