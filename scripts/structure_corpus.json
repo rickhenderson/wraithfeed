@@ -1,0 +1,9 @@
+[
+  {"name": "unit42_blinder", "url": "https://unit42.paloaltonetworks.com/blinder-tunnel-targets-critical-infrastructure/", "expected": "malware"},
+  {"name": "unit42_netscaler", "url": "https://unit42.paloaltonetworks.com/netscaler-zero-days-exploited/", "expected": "malware"},
+  {"name": "unit42_amos", "url": "https://unit42.paloaltonetworks.com/atomic-macos-amos-stealer-activity/", "expected": "malware"},
+  {"name": "dfir_bengalseo", "url": "https://thedfirreport.com/2026/08/24/bengalseo-part-1-anatomy-of-the-operation/", "expected": "malware"},
+  {"name": "dfir_activemq", "url": "https://thedfirreport.com/2026/02/23/apache-activemq-exploit-leads-to-lockbit-ransomware/", "expected": "malware"},
+  {"name": "sans_rmm", "url": "https://isc.sans.edu/diary/rss/33400", "expected": "malware"},
+  {"name": "unit42_consulting_myths", "url": "https://unit42.paloaltonetworks.com/3-consulting-myths-debunked-by-unit-42-experts/", "expected": "irrelevant"}
+]

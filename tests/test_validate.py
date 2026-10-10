@@ -298,3 +298,24 @@ def test_technique_list_has_current_and_retired_entries():
     assert techniques.name("T1059.001") == "PowerShell"
     assert len(techniques.current_ids()) > 500
     assert all("." not in t for t, _ in techniques.current_parents())
+
+
+@pytest.mark.parametrize("model_text", [
+    "Loader - test campaign",
+    "Loader - test campaign - example.test - 2024-02",
+    "Loader - test campaign - example.test - 2024-02-03",
+    "Loader - test campaign - Vendor Labs - 2024-02",
+    "Loader - test campaign - example.test",
+])
+def test_compose_event_info_takes_source_and_date_from_code(model_text):
+    from datetime import date
+    from validate.indicators import compose_event_info
+    assert compose_event_info(model_text, "https://www.vendor.example/blog/x", date(2026, 9, 1)) == \
+        "Loader - test campaign - vendor.example - 2026-09-01"
+
+
+def test_cves_come_from_the_article_not_the_model():
+    raw = _doc(cves=["CVE-1999-0001"])
+    result = validate_output(raw, CANDIDATES, NO_HITS, cves=["CVE-2026-88771"])
+    assert result.extraction.cves == ["CVE-2026-88771"]
+    assert validate_output(_doc(), CANDIDATES, NO_HITS).extraction.cves == []

@@ -20,12 +20,17 @@ from validate.schema import Extraction, Irrelevant
 # ~6-8k tokens of article; the context window must also hold the candidate
 # list and the output (WRAITHFEED_STRUCTURE_NUM_CTX for Ollama).
 MAX_ARTICLE_CHARS = 24_000
+HEAD_SHARE = 0.6  # of the kept text; the rest is taken from the end of the article
+OMITTED_MARKER = "\n[... middle of article omitted ...]\n"
 MAX_CANDIDATES = 300
 MAX_TOKENS = 3000
 
 # HANDOVER.md "Extraction prompt" is the reference. Two differences: a rule that
-# article text is data (articles are untrusted input), and no attack_patterns,
-# which code fills from technique ids the article cites.
+# article text is data (articles are untrusted input), and no attack_patterns
+# or cves, which code fills from ids the article cites. The model still writes
+# the full event_info shape, but code replaces its source domain and date
+# (validate.indicators.compose_event_info): shortening the shape in the prompt
+# made qwen3.5 repeat an idx on the demo article, and stage 7 rejected it.
 SYSTEM_PROMPT = """You are a CTI analyst assistant. You process ONE malware analysis article
 and return STRICT JSON. No prose, no markdown fences.
 
@@ -58,7 +63,6 @@ Output schema:
   "targeted_regions": ["..."],
   "first_seen": "YYYY-MM-DD" or null,
   "summary": "<= 60 words, factual",
-  "cves": ["CVE-YYYY-NNNNN"],
   "indicators": [
     {
       "idx": <integer index from CANDIDATES>,
@@ -93,13 +97,23 @@ def response_schema() -> dict:
         defs.update(schema.pop("$defs", {}))
         defs[model.__name__] = schema
         refs.append({"$ref": f"#/$defs/{model.__name__}"})
-    # Techniques come from ids the article cites (extract.techniques), not from the model.
+    # Techniques and CVEs come from ids the article cites (extract.techniques, extract.cves), not from the model.
     defs["Extraction"]["properties"].pop("attack_patterns")
+    defs["Extraction"]["properties"].pop("cves")
     return {"anyOf": refs, "$defs": defs}
 
 
 def fit_article(text: str) -> str:
-    return text[:MAX_ARTICLE_CHARS]
+    """Cut `text` to MAX_ARTICLE_CHARS, keeping its start and its end.
+
+    Reports put the summary up front and the IOC tables at the end; cutting only
+    the tail dropped the indicators of a 43k-character Unit 42 article entirely.
+    """
+    if len(text) <= MAX_ARTICLE_CHARS:
+        return text
+    room = MAX_ARTICLE_CHARS - len(OMITTED_MARKER)
+    head = int(room * HEAD_SHARE)
+    return text[:head] + OMITTED_MARKER + text[len(text) - (room - head):]
 
 
 def visible_candidates(text: str, candidates: list[Candidate]) -> list[Candidate]:

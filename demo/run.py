@@ -12,11 +12,13 @@ Written by Claude Code for Rick Henderson.
 from __future__ import annotations
 
 import json
+from datetime import datetime
 import sys
 from pathlib import Path
 
 from extract.article import Article, extract_article
 from extract.iocs import extract_candidates
+from extract.cves import extract_cves
 from extract.techniques import extract_techniques
 from llm.structure import fit_article, structure_article, visible_candidates
 from misp.writer import build_event
@@ -101,6 +103,8 @@ def run_demo(out_dir: str = DEFAULT_OUT, out=None) -> int:
     for c in candidates:
         say(f"           [{c.idx:>2}] {c.type:<9} {c.value}")
     mentions = extract_techniques(article.text)
+    cves = extract_cves(article.text)
+    say(f"         CVE ids the article cites: {', '.join(cves) or 'none'}")
     say(f"         ATT&CK ids the article cites: {', '.join(m.technique_id for m in mentions) or 'none'}")
 
     provider = ReplayProvider(raw, source["structure_model"])
@@ -116,7 +120,7 @@ def run_demo(out_dir: str = DEFAULT_OUT, out=None) -> int:
         say(f"           idx {ref['idx']:>2} -> {ref['type']}, {ref['role']}, to_ids={str(ref['to_ids']).lower()}")
 
     try:
-        validated = validate_output(returned, candidates, warninglist, mentions)
+        validated = validate_output(returned, candidates, warninglist, mentions, cves)
     except ExtractionRejected as exc:
         say()
         say(f"The recorded response no longer validates ({exc}).")
@@ -141,7 +145,7 @@ def run_demo(out_dir: str = DEFAULT_OUT, out=None) -> int:
     say("         Malformed model output is discarded, never repaired. Same response, tampered:")
     for what, tampered in _tampered_copies(returned):
         try:
-            validate_output(tampered, candidates, warninglist, mentions)
+            validate_output(tampered, candidates, warninglist, mentions, cves)
         except ExtractionRejected as exc:
             say(f"           model {what}")
             say(f"             -> rejected: {str(exc)[:110]}")
@@ -149,7 +153,9 @@ def run_demo(out_dir: str = DEFAULT_OUT, out=None) -> int:
             say(f"           model {what}\n             -> NOT rejected (this is a bug)")
             return 1
 
-    event = proposed_event(validated)
+    event = proposed_event(
+        validated, source_url=SOURCE["url"], published=datetime.fromisoformat(SOURCE["published"]).date()
+    )
     finding = {
         **SOURCE,
         "title": article.title,

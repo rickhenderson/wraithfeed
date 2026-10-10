@@ -28,6 +28,7 @@ from dotenv import load_dotenv
 from collectors.feeds import SOURCES, FeedFetchError, poll_feed
 from extract.article import ArticleFetchError, fetch_article
 from extract.iocs import extract_candidates
+from extract.cves import extract_cves
 from extract.techniques import extract_techniques
 from llm.providers import LLMError, get_provider
 from llm.structure import StructureError, structure_article
@@ -136,7 +137,9 @@ def run(
                     raw = structure_article(
                         item.title, item.url, article.text, candidates, provider=structure_provider
                     )
-                    outcome = validate_output(raw, candidates, warninglist, extract_techniques(article.text))
+                    outcome = validate_output(
+                        raw, candidates, warninglist, extract_techniques(article.text), extract_cves(article.text)
+                    )
                 except (LLMError, StructureError, WarninglistUnavailable) as exc:
                     # Config or infrastructure problem, not this article's fault:
                     # every remaining article would fail the same way.
@@ -166,7 +169,9 @@ def run(
                 if isinstance(outcome, ValidatedExtraction):
                     if outcome.dropped_techniques:
                         print(f"[cli] {item.url}: dropped techniques {list(outcome.dropped_techniques)}", file=sys.stderr)
-                    result["event"] = proposed_event(outcome)
+                    result["event"] = proposed_event(
+                        outcome, source_url=item.url, published=item.published.date()
+                    )
                     if not dry_run:
                         finding = {
                             **result,

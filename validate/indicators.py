@@ -8,8 +8,10 @@ regardless of what the model said (HANDOVER.md MISP writing conventions).
 from __future__ import annotations
 
 import os
+import re
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass
+from datetime import date
 from typing import Protocol
 from urllib.parse import urlsplit
 
@@ -197,18 +199,55 @@ def validate_output(
     candidates: list[Candidate],
     warninglist: Warninglist,
     technique_mentions: Sequence[TechniqueMention] = (),
+    cves: Sequence[str] = (),
 ) -> ValidatedExtraction | Irrelevant:
-    """Full stage 7. Raises ExtractionRejected (discard) or WarninglistUnavailable (retry)."""
+    """Full stage 7. Raises ExtractionRejected (discard) or WarninglistUnavailable (retry).
+
+    `cves` are the ids the article states (extract.cves); they replace whatever
+    the model put in its own cves field.
+    """
     parsed = parse_extraction(raw)
     if isinstance(parsed, Irrelevant):
         return parsed
     parsed, dropped = attach_techniques(parsed, technique_mentions)
+    parsed = parsed.model_copy(update={"cves": list(cves)})
     return ValidatedExtraction(parsed, resolve_indicators(parsed, candidates, warninglist), dropped)
 
 
-def proposed_event(validated: ValidatedExtraction) -> dict:
-    """The event stage 8 would write: model fields plus code-resolved indicator values."""
+_DATE_SEGMENT = re.compile(r"\d{4}-\d{2}(?:-\d{2})?")
+_DOMAIN_SEGMENT = re.compile(r"(?:[a-z0-9-]+\.)+[a-z]{2,}", re.I)
+
+
+def compose_event_info(subject: str, url: str, published: date) -> str:
+    """`<Actor/Malware> - <campaign> - <source domain> - <YYYY-MM-DD>`, source and date from code.
+
+    The prompt asks the model for the whole shape, but it wrote dates and actors
+    the article doesn't state, so the domain comes from the article URL and the
+    date from the feed's published date. From the model's text, a trailing date
+    is dropped together with the source segment before it (a name like "Unit 42"
+    as often as a domain); without a date, a trailing bare domain is dropped.
+    """
+    parts = [p.strip() for p in subject.split(" - ")]
+    if len(parts) > 1 and _DATE_SEGMENT.fullmatch(parts[-1]):
+        parts.pop()
+        if len(parts) > 1:
+            parts.pop()
+    elif len(parts) > 1 and _DOMAIN_SEGMENT.fullmatch(parts[-1]):
+        parts.pop()
+    host = (urlsplit(url).hostname or "").removeprefix("www.")
+    return f"{' - '.join(parts)} - {host} - {published.isoformat()}"[:256]
+
+
+def proposed_event(
+    validated: ValidatedExtraction, *, source_url: str | None = None, published: date | None = None
+) -> dict:
+    """The event stage 8 would write: model fields plus code-resolved indicator values.
+
+    With `source_url` and `published`, event_info gets its source domain and date from them.
+    """
     event = validated.extraction.model_dump(mode="json", exclude={"indicators"})
+    if source_url and published:
+        event["event_info"] = compose_event_info(event["event_info"], source_url, published)
     event["indicators"] = [
         {**asdict(i), "warninglist_hits": list(i.warninglist_hits)} for i in validated.indicators
     ]

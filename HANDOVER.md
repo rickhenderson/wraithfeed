@@ -90,13 +90,13 @@ the model to judge recency.
 | `llm/structure.py` | main extraction call, returns raw JSON | done |
 | `validate/schema.py` | pydantic model for the extraction schema | done |
 | `validate/indicators.py` | index resolution, type/value match, warninglist check, technique filter | done |
-| `misp/writer.py` | PyMISP event/object/attribute construction, dedupe-on-write | done; tested with fakes only, never run against a live MISP |
+| `misp/writer.py` | PyMISP event/object/attribute construction, dedupe-on-write | done; tested with fakes, and run live against the local MISP on 2026-10-09 (2 events) |
 | `store/artifacts.py` | JSON artifact per finding written to MISP | done |
 | `cli.py` | `run`, `--dry-run`, `--since`, `--source`, `--limit` (per source) | `--write` (unpublished MISP events + JSON artifacts) or `--dry-run` (default), `--artifact-dir`; wired for stages 1-8 |
 
 Stages 1-7 (collect, dedupe, triage, fetch, candidates, structure, validate)
 are chained end-to-end via `cli.py run` and smoke-tested against live feeds
-and articles. Stage 8 is built (`--write`) but has not yet been exercised against a live MISP.
+and articles. Stage 8 (`--write`) was exercised against the local MISP on 2026-10-09: two Unit 42 articles became unpublished, org-only events (MISP ids 7, 8) with file/url/domain-ip objects and the tags described below. The demo's event JSON has still not been tried through MISP's import.
 
 ### LLM providers (update 2026-09-24)
 
@@ -131,8 +131,38 @@ stage 7 but an empty warninglist: `llama3.2:3b` (9 s) copied schema
 placeholders (`T1234.xxxx`) and was rejected; `qwen3.5:latest` (45 s, ~86% on
 GPU) passed. Its output still needs review: it reported two Cloudflare IPs as
 C2 and `search.sigstore.dev` as exfil with `to_ids` true, which real
-warninglists should catch. One article is not a benchmark; model choice for
-stage 6 is still open.
+warninglists should catch. One article is not a benchmark.
+
+**Model comparison (2026-10-09)** — `scripts/compare_structure.py`, 8 saved articles
+(`scripts/structure_corpus.json`, fetched and cached under gitignored `data/structure_cache/`, plus the demo article; one is a non-malware control),
+12288 ctx, temperature 0, one run each, real stage 7 with the live warninglists.
+Stage 7 acceptance on the 7 malware articles: `qwen3.5:latest` 7/7 (and the control
+correctly irrelevant), `qwen3.5-abliterated:4b` 5/7 (summary over 60 words, type
+mismatch), `llama3.2:3b` 2/7 (`N/A`/`null`/`NNNNN` in `cves`, one type mismatch; when
+accepted it set `to_ids` on almost nothing), `qwen3-vl-abliterated:4b` 0/7 (empty
+responses). **Default for stage 6: `qwen3.5:latest`** (`WRAITHFEED_STRUCTURE_*` in
+`.env`/`.env.example`, ctx 12288, timeout 300). It takes 2-85 s per article. Recall
+was not hand-checked against the articles, and 7 articles is still a small sample.
+Known weaknesses of its accepted output: it over-flags `to_ids` (e.g. a vendor's own
+domain as C2 when no warninglist covers it), datacenter IPs stay `to_ids` because
+that list is advisory, and some comments are generic.
+
+Two fixes came out of it:
+- The model wrote `event_info` dates and actors the article doesn't state
+  ("2024-02" for a 2026 article). The prompt still asks for the full shape, but code
+  replaces its source and date: the domain comes from the URL, the date from the
+  feed's `published` (`validate.indicators.compose_event_info`; a trailing date is
+  dropped with the source segment before it, which is often a name like "Unit 42").
+  Asking the model for only `<Actor/Malware> - <campaign>` made `qwen3.5:latest`
+  repeat idx 14 on the demo article, rejected by stage 7 on 3 of 3 runs, while the
+  full shape was accepted on 3 of 3, so the prompt matches the reference.
+- `fit_article` cut only the end of long articles, and IOC tables sit at the end: a
+  43k-character Unit 42 article lost 26 of its 34 candidates. It now keeps the first
+  60% and last 40% of the 24k budget with an `[... middle of article omitted ...]`
+  marker. Candidates in the omitted middle are still hidden, idx unchanged.
+
+Re-run of `qwen3.5:latest` after both fixes: 7/7 malware articles accepted again and
+the control still irrelevant; Blinder went from 2 to 11 indicators.
 
 ### ATT&CK techniques (decided 2026-10-04)
 
@@ -154,6 +184,22 @@ galaxy are revoked (e.g. all of `T1562`), so older articles will cite some.
 The list is regenerated from MISP's galaxy by `scripts/update_attack_techniques.py`.
 Future work: map described behavior to techniques (model picks technique
 *names* from a list, code resolves them to ids).
+
+### CVEs (decided 2026-10-09)
+
+CVE ids are code-derived like techniques. `extract/cves.py` finds the ids the article
+states and stage 7 attaches them (`validate_output(..., cves=...)`), replacing anything
+the model put in `cves`; the model's prompt and decoding schema no longer include the
+field. Why: on the NetScaler article (8 CVEs named) the model omitted `cves` and every
+other optional field, and stage 7 accepted the minimal object, so the MISP event had no
+`vulnerability` objects. Trade-off: every CVE id the article mentions is taken, including
+ones cited only as background or from older campaigns. Not fixed: the other optional
+fields (actors, families, sectors, regions) can still be silently omitted; requiring them
+is an open option. MISP event 8 (written before this change) was deleted and the
+article re-run as event 9 with the 8 CVE objects. Deleting a MISP event blocklists its
+UUID, and the UUID is uuid5(article URL), so re-writing that article fails with
+"Event blocked by event blocklist" until the entry under Event Blocklists is removed
+(`POST /eventBlocklists/delete/<id>`) and the article's seen-store row is cleared.
 
 ### MISP write and artifacts (stage 8, 2026-10-04)
 
@@ -234,7 +280,7 @@ cleanly on Unit 42 (WordPress) but produced nav boilerplate instead of
 article text on a SANS ISC diary page — a known gap to account for when the
 LLM stages are wired in, not yet fixed.
 
-114/114 tests passing (`pytest`). New deps since project start: `feedparser`,
+207/207 tests passing (`pytest`). New deps since project start: `feedparser`,
 `trafilatura`, `pydantic` (pinned in `requirements.txt`).
 
 ---
@@ -398,7 +444,7 @@ when a reviewer can clone it, run one command, and watch an article become a
 reviewed, unpublished MISP event, with the index-only indicator design visible.
 Anything not on this list is out of scope; don't start it.
 
-- [ ] Stage 6 `llm/structure.py`: one working prompt/model (local Ollama with
+- [x] Stage 6 `llm/structure.py`: one working prompt/model (local Ollama with
       JSON-schema `format`; API model optional for quality).
 - [x] Stage 7 `validate/`: schema check, index resolution, warninglists, plus
       the malformed-output tests listed under Testing expectations.

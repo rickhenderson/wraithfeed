@@ -43,14 +43,26 @@ def test_prompt_with_no_candidates():
     assert build_prompt("T", "u", "plain text", []).endswith("(none)")
 
 
-def test_candidates_from_truncated_part_are_not_shown_but_keep_their_idx():
-    tail_ip = "203.0.113.9"
-    text = "A" * 100 + f" first host 198.51.100.7 " + "B" * (structure.MAX_ARTICLE_CHARS) + f" tail {tail_ip}"
+def test_candidates_from_cut_middle_are_not_shown_but_keep_their_idx():
+    mid_ip, tail_ip = "203.0.113.9", "192.0.2.44"
+    text = "A" * 100 + " first host 198.51.100.7 " + "B" * 15000 + f" middle {mid_ip} " + "C" * structure.MAX_ARTICLE_CHARS + f" tail {tail_ip}"
     cands = extract_candidates(text)
     fitted = structure.fit_article(text)
     shown = structure.visible_candidates(fitted, cands)
-    assert [c.value for c in shown] == ["198.51.100.7"]
-    assert tail_ip in {c.value for c in cands}
+    assert [c.value for c in shown] == ["198.51.100.7", tail_ip]
+    assert mid_ip in {c.value for c in cands}
+
+
+def test_fit_article_keeps_start_and_end_within_limit():
+    text = "HEAD" + "x" * (structure.MAX_ARTICLE_CHARS * 2) + "TAIL"
+    fitted = structure.fit_article(text)
+    assert len(fitted) <= structure.MAX_ARTICLE_CHARS
+    assert fitted.startswith("HEAD") and fitted.endswith("TAIL")
+    assert structure.OMITTED_MARKER in fitted
+
+
+def test_short_article_is_untouched():
+    assert structure.fit_article("short") == "short"
 
 
 def test_candidate_cap(monkeypatch):
@@ -79,7 +91,7 @@ def test_article_text_is_truncated_in_prompt():
     provider = _FakeProvider("{}")
     structure_article("T", "u", "x" * (structure.MAX_ARTICLE_CHARS + 500), [], provider=provider)
     prompt = provider.calls[0]["prompt"]
-    assert "x" * structure.MAX_ARTICLE_CHARS in prompt
+    assert structure.OMITTED_MARKER in prompt
     assert "x" * (structure.MAX_ARTICLE_CHARS + 1) not in prompt
 
 
@@ -126,3 +138,8 @@ def test_stage6_to_stage7_round_trip_resolves_indices_to_values():
 def test_model_is_not_asked_for_attack_patterns():
     assert "attack_patterns" not in structure.SYSTEM_PROMPT
     assert "attack_patterns" not in response_schema()["$defs"]["Extraction"]["properties"]
+
+
+def test_model_is_not_asked_for_cves():
+    assert "cves" not in structure.SYSTEM_PROMPT
+    assert "cves" not in response_schema()["$defs"]["Extraction"]["properties"]
